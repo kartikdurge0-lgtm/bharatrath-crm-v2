@@ -1,0 +1,243 @@
+@import "tailwindcss";
+
+/* =========================================================
+   BHARATRATH CRM — GLOBAL DESIGN THEME
+   ========================================================= */
+
+:root {
+  /* Brand */
+  --br-green: #16a34a;
+  --br-green-dark: #15803d;
+  --br-green-light: #f0fdf4;
+
+  /* Navy */
+  --br-navy: #0b2742;
+  --br-navy-light: #123a5c;
+
+  /* Background */
+  --br-page-bg: #f8fafc;
+  --br-card-bg: #ffffff;
+  --br-table-header: #f4f7fa;
+
+  /* Text */
+  --br-text: #0f172a;
+  --br-text-secondary: #334155;
+  --br-text-muted: #64748b;
+  --br-text-light: #94a3b8;
+
+  /* Border */
+  --br-border: #e2e8f0;
+  --br-border-light: #edf2f7;
+
+  /* Status */
+  --br-blue: #3b82f6;
+  --br-blue-light: #eff6ff;
+
+  --br-orange: #f59e0b;
+  --br-orange-light: #fffbeb;
+
+  --br-red: #ef4444;
+  --br-red-light: #fef2f2;
+
+  --br-green-status: #16a34a;
+  --br-green-status-light: #f0fdf4;
+
+  /* Shadows */
+  --br-shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+
+  --br-shadow-card:
+    0 1px 3px 0 rgb(15 23 42 / 0.06), 0 1px 2px -1px rgb(15 23 42 / 0.04);
+
+  --br-shadow-hover: 0 4px 10px -2px rgb(15 23 42 / 0.08);
+
+  /* Typography */
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  color: var(--br-text);
+  background: var(--br-page-bg);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* =========================================================
+   GLOBAL RESET
+   ========================================================= */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+html {
+  background: var(--br-page-bg);
+}
+
+body {
+  min-height: 100vh;
+  background: var(--br-page-bg);
+  color: var(--br-text);
+}
+
+/* =========================================================
+   FORM ELEMENTS
+   ========================================================= */
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* =========================================================
+   INPUT FOCUS
+   ========================================================= */
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+}
+
+/* =========================================================
+   SCROLLBAR
+   ========================================================= */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* =========================================================
+   SELECTION
+   ========================================================= */
+
+::selection {
+  background: #dcfce7;
+  color: #14532d;
+}
+
+/* =========================================================
+   LINKS
+   ========================================================= */
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* =========================================================
+   TABLE DEFAULTS
+   ========================================================= */
+
+table {
+  border-collapse: collapse;
+}
+
+/* =========================================================
+   NUMBER / CURRENCY EMPHASIS
+   ========================================================= */
+
+.br-value {
+  color: var(--br-text);
+  font-weight: 700;
+}
+
+/* =========================================================
+   COMMON BRAND HELPERS
+   These can be used gradually across pages.
+   ========================================================= */
+
+.br-primary {
+  background: var(--br-green);
+  color: #ffffff;
+}
+
+.br-primary:hover {
+  background: var(--br-green-dark);
+}
+
+.br-primary-light {
+  background: var(--br-green-light);
+  color: var(--br-green-dark);
+}
+
+.br-navy {
+  background: var(--br-navy);
+  color: #ffffff;
+}
+
+.br-page {
+  background: var(--br-page-bg);
+}
+
+.br-card {
+  background: var(--br-card-bg);
+  border: 1px solid var(--br-border);
+  box-shadow: var(--br-shadow-card);
+}
+
+.br-muted {
+  color: var(--br-text-muted);
+}
+
+/* =========================================================
+   STATUS HELPERS
+   ========================================================= */
+
+.br-status-success {
+  background: var(--br-green-status-light);
+  color: var(--br-green-status);
+}
+
+.br-status-info {
+  background: var(--br-blue-light);
+  color: var(--br-blue);
+}
+
+.br-status-warning {
+  background: var(--br-orange-light);
+  color: #b45309;
+}
+
+.br-status-danger {
+  background: var(--br-red-light);
+  color: #dc2626;
+}

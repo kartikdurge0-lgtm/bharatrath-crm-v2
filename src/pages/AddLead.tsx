@@ -2,11 +2,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
-import {
-  addLead,
-  calculateCommission,
-  generateLeadId,
-} from "../data/leadStore";
+import { supabase } from "../lib/supabase";
 
 import type { LeadPriority, LeadSource } from "../data/leadStore";
 
@@ -30,10 +26,6 @@ const leadSources: LeadSource[] = [
 ];
 
 const priorities: LeadPriority[] = ["High", "Medium", "Low"];
-
-/* =====================================================
-   SOURCE DETAILS
-===================================================== */
 
 const sourceDetailsMap: Record<Exclude<LeadSource, "Other">, string[]> = {
   Website: [
@@ -68,15 +60,42 @@ const sourceDetailsMap: Record<Exclude<LeadSource, "Other">, string[]> = {
   "Cold Call": ["Outbound Call", "Telecalling"],
 };
 
-/* =====================================================
-   ADD LEAD
-===================================================== */
+function calculateCommission(
+  expectedValue: number,
+  commissionPercent: number,
+): number {
+  if (!Number.isFinite(expectedValue) || !Number.isFinite(commissionPercent)) {
+    return 0;
+  }
+
+  return Math.round((expectedValue * commissionPercent) / 100);
+}
+
+/*
+ * UI Sales Person IDs are displayed as SP-001, SP-002, etc.
+ * Supabase stores the actual sales_persons.id as bigint.
+ */
+function getSalesPersonDatabaseId(displayId: string): number {
+  const match = displayId.match(/^SP-(\d+)$/);
+
+  if (!match) {
+    return NaN;
+  }
+
+  return Number(match[1]);
+}
 
 export default function AddLead() {
   const navigate = useNavigate();
 
-  const salesPersons = getActiveSalesPersons();
-  const teamMembers = getInternalTeamMembers();
+  const [salesPersons, setSalesPersons] = useState<
+    Awaited<ReturnType<typeof getActiveSalesPersons>>
+  >([]);
+
+  const [teamMembers, setTeamMembers] = useState<
+    Awaited<ReturnType<typeof getInternalTeamMembers>>
+  >([]);
+
   const services = getServices();
 
   const [form, setForm] = useState({
@@ -115,6 +134,30 @@ export default function AddLead() {
   });
 
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  /* ===================================================
+     LOAD SALES PERSONS
+  =================================================== */
+
+  useEffect(() => {
+    const loadSalesPersons = async () => {
+      try {
+        const [activePersons, internalMembers] = await Promise.all([
+          getActiveSalesPersons(),
+          getInternalTeamMembers(),
+        ]);
+
+        setSalesPersons(activePersons);
+        setTeamMembers(internalMembers);
+      } catch (err) {
+        console.error("Failed to load sales persons:", err);
+        setError("Failed to load sales persons. Please refresh the page.");
+      }
+    };
+
+    loadSalesPersons();
+  }, []);
 
   /* ===================================================
      DEFAULT ASSIGNMENTS
@@ -127,7 +170,9 @@ export default function AddLead() {
         assignedTo: salesPersons[0].id,
       }));
     }
+  }, [form.assignedTo, salesPersons]);
 
+  useEffect(() => {
     if (!form.followUpAssignedTo && teamMembers.length > 0) {
       const vijay = teamMembers.find(
         (person) => person.name.toLowerCase() === "vijay",
@@ -138,7 +183,7 @@ export default function AddLead() {
         followUpAssignedTo: vijay?.id ?? teamMembers[0].id,
       }));
     }
-  }, [form.assignedTo, form.followUpAssignedTo, salesPersons, teamMembers]);
+  }, [form.followUpAssignedTo, teamMembers]);
 
   /* ===================================================
      FIELD UPDATE
@@ -193,7 +238,7 @@ export default function AddLead() {
      SUBMIT
   =================================================== */
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setError("");
@@ -232,71 +277,110 @@ export default function AddLead() {
       ? calculateCommission(form.expectedValue, form.commissionPercent)
       : 0;
 
-    const now = new Date().toISOString();
+    const assignedToId = getSalesPersonDatabaseId(form.assignedTo);
+    const followUpAssignedToId = getSalesPersonDatabaseId(
+      form.followUpAssignedTo,
+    );
 
-    addLead({
-      id: generateLeadId(),
+    if (!Number.isFinite(assignedToId)) {
+      setError("Invalid Sales Person selected.");
+      return;
+    }
 
-      companyName: form.companyName.trim(),
+    if (!Number.isFinite(followUpAssignedToId)) {
+      setError("Invalid Follow-up Assigned To selected.");
+      return;
+    }
 
-      contactPerson: form.contactPerson.trim(),
+    setSaving(true);
 
-      phone: form.phone.trim(),
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-      email: form.email.trim(),
+      if (userError) {
+        throw userError;
+      }
 
-      address: form.address.trim(),
+      if (!user) {
+        throw new Error("You are not logged in.");
+      }
 
-      leadSource: form.leadSource,
+      /*
+       * IMPORTANT:
+       * Do not manually create LEAD-001 here.
+       *
+       * Supabase leads.id is bigint generated by identity.
+       * Database will create the numeric ID automatically.
+       */
 
-      sourceDetails: form.sourceDetails.trim(),
+      const { data: insertedLead, error: insertError } = await supabase
+        .from("leads")
+        .insert({
+          company_name: form.companyName.trim(),
+          contact_person: form.contactPerson.trim(),
+          phone: form.phone.trim(),
+          email: form.email.trim(),
+          address: form.address.trim(),
 
-      assignedTo: form.assignedTo,
+          lead_source: form.leadSource,
+          source_details: form.sourceDetails.trim(),
 
-      followUpAssignedTo: form.followUpAssignedTo,
+          assigned_to_id: assignedToId,
+          follow_up_assigned_to_id: followUpAssignedToId,
 
-      referencePersonName: form.referencePersonName.trim(),
+          reference_person_name: form.referencePersonName.trim(),
+          reference_person_phone: form.referencePersonPhone.trim(),
+          reference_person_email: form.referencePersonEmail.trim(),
 
-      referencePersonPhone: form.referencePersonPhone.trim(),
+          commission_applicable: form.commissionApplicable,
+          commission_percent: form.commissionPercent,
+          commission_amount: commissionAmount,
+          commission_status: form.commissionApplicable
+            ? "Pending"
+            : "Not Applicable",
 
-      referencePersonEmail: form.referencePersonEmail.trim(),
+          requirement: form.requirement.trim(),
+          interested_service: form.interestedService,
 
-      commissionApplicable: form.commissionApplicable,
+          priority: form.priority,
+          status: "New",
 
-      commissionPercent: form.commissionPercent,
+          expected_value: Number(form.expectedValue) || 0,
+          expected_closing_date: form.expectedClosingDate || null,
 
-      commissionAmount,
+          notes: form.notes.trim(),
+          internal_notes: form.internalNotes.trim(),
 
-      commissionStatus: form.commissionApplicable
-        ? "Pending"
-        : "Not Applicable",
+          next_follow_up_date: form.nextFollowUpDate || null,
+          next_follow_up_time: form.nextFollowUpTime || null,
+          next_action: form.nextAction.trim(),
 
-      requirement: form.requirement.trim(),
+          created_by: user.id,
+        })
+        .select("id")
+        .single();
 
-      interestedService: form.interestedService,
+      if (insertError) {
+        throw insertError;
+      }
 
-      priority: form.priority,
+      console.log("Lead created:", insertedLead);
 
-      status: "New",
+      navigate("/leads");
+    } catch (err) {
+      console.error("Add lead error:", err);
 
-      expectedValue: Number(form.expectedValue) || 0,
-
-      expectedClosingDate: form.expectedClosingDate,
-
-      notes: form.notes.trim(),
-
-      internalNotes: form.internalNotes.trim(),
-
-      nextFollowUpDate: form.nextFollowUpDate,
-
-      nextFollowUpTime: form.nextFollowUpTime,
-
-      nextAction: form.nextAction.trim(),
-
-      createdAt: now,
-    });
-
-    navigate("/leads");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to save lead. Please try again.",
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   /* ===================================================
@@ -430,7 +514,6 @@ export default function AddLead() {
           </div>
 
           <div className="grid grid-cols-1 gap-5 p-6 md:grid-cols-2">
-            {/* LEAD SOURCE */}
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Lead Source <span className="text-red-500">*</span>
@@ -451,7 +534,6 @@ export default function AddLead() {
               </select>
             </div>
 
-            {/* SOURCE DETAILS */}
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Source Details
@@ -488,7 +570,6 @@ export default function AddLead() {
               </p>
             </div>
 
-            {/* SALES PERSON */}
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="block text-sm font-medium text-gray-700">
@@ -524,7 +605,6 @@ export default function AddLead() {
               </p>
             </div>
 
-            {/* FOLLOW-UP ASSIGNED */}
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Follow-up Assigned To <span className="text-red-500">*</span>
@@ -551,7 +631,6 @@ export default function AddLead() {
               </p>
             </div>
 
-            {/* REFERENCE NAME */}
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Reference Person Name
@@ -568,7 +647,6 @@ export default function AddLead() {
               />
             </div>
 
-            {/* REFERENCE PHONE */}
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Reference Person Phone
@@ -585,7 +663,6 @@ export default function AddLead() {
               />
             </div>
 
-            {/* REFERENCE EMAIL */}
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Reference Person Email
@@ -888,9 +965,10 @@ export default function AddLead() {
 
           <button
             type="submit"
-            className="rounded-lg bg-blue-600 px-6 py-3 font-medium text-white hover:bg-blue-700"
+            disabled={saving}
+            className="rounded-lg bg-blue-600 px-6 py-3 font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Save Lead
+            {saving ? "Saving..." : "Save Lead"}
           </button>
         </div>
       </form>

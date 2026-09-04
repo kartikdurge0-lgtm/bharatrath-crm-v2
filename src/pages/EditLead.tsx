@@ -36,46 +36,74 @@ export default function EditLead() {
   const [address, setAddress] = useState("");
 
   const [leadSource, setLeadSource] = useState<LeadSource>("Website");
-
   const [sourceDetails, setSourceDetails] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
 
   const [referencePersonName, setReferencePersonName] = useState("");
-
   const [referencePersonPhone, setReferencePersonPhone] = useState("");
-
   const [referencePersonEmail, setReferencePersonEmail] = useState("");
 
   const [commissionApplicable, setCommissionApplicable] = useState(false);
-
   const [commissionPercent, setCommissionPercent] = useState(0);
 
   const [requirement, setRequirement] = useState("");
   const [interestedService, setInterestedService] = useState("");
 
   const [priority, setPriority] = useState<LeadPriority>("Medium");
-
   const [expectedValue, setExpectedValue] = useState(0);
-
   const [expectedClosingDate, setExpectedClosingDate] = useState("");
 
   const [notes, setNotes] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
 
   const [nextFollowUpDate, setNextFollowUpDate] = useState("");
-
   const [nextFollowUpTime, setNextFollowUpTime] = useState("");
-
   const [nextAction, setNextAction] = useState("");
+
+  const [salesPersons, setSalesPersons] = useState<
+    Awaited<ReturnType<typeof getActiveSalesPersons>>
+  >([]);
+
+  const [services, setServices] = useState<
+    Awaited<ReturnType<typeof getServices>>
+  >([]);
 
   const [showMore, setShowMore] = useState(false);
   const [error, setError] = useState("");
 
-  const salesPersons = getActiveSalesPersons();
+  // Load Sales Persons and Services
+  useEffect(() => {
+    let mounted = true;
 
-  const services = getServices().filter(
-    (service) => service.status === "Active",
-  );
+    async function loadData() {
+      try {
+        const [persons, serviceList] = await Promise.all([
+          getActiveSalesPersons(),
+          Promise.resolve(getServices()),
+        ]);
+
+        if (!mounted) return;
+
+        setSalesPersons(persons);
+        setServices(
+          serviceList.filter((service) => service.status === "Active"),
+        );
+      } catch (err) {
+        console.error("Failed to load Edit Lead data:", err);
+
+        if (mounted) {
+          setSalesPersons([]);
+          setServices([]);
+        }
+      }
+    }
+
+    loadData();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!lead) return;
@@ -135,7 +163,6 @@ export default function EditLead() {
 
     if (person) {
       setCommissionPercent(person.commissionPercent);
-
       setCommissionApplicable(person.commissionPercent > 0);
     }
   };
@@ -187,9 +214,7 @@ export default function EditLead() {
       assignedTo,
 
       referencePersonName: referencePersonName.trim(),
-
       referencePersonPhone: referencePersonPhone.trim(),
-
       referencePersonEmail: referencePersonEmail.trim(),
 
       commissionApplicable,
@@ -584,7 +609,6 @@ function Field({
     <div>
       <label className="mb-1 block text-sm font-medium text-gray-700">
         {label}
-
         {required && <span className="text-red-500"> *</span>}
       </label>
 

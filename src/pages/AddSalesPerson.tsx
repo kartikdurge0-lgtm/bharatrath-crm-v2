@@ -1,12 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  addSalesPerson,
-  generateSalesPersonId,
-  type SalesPerson,
-  type SalesPersonType,
-} from "../data/salesPersonStore";
+import { addSalesPerson, type SalesPersonType } from "../data/salesPersonStore";
 
 export default function AddSalesPerson() {
   const navigate = useNavigate();
@@ -21,6 +16,7 @@ export default function AddSalesPerson() {
   });
 
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const handleChange = (field: keyof typeof form, value: string) => {
     setForm((prev) => ({
@@ -29,7 +25,7 @@ export default function AddSalesPerson() {
     }));
   };
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
 
@@ -51,21 +47,26 @@ export default function AddSalesPerson() {
       return;
     }
 
-    const newSalesPerson: SalesPerson = {
-      id: generateSalesPersonId(),
-      name,
-      mobile: form.mobile.trim(),
-      email: form.email.trim(),
-      type: form.type,
-      commissionPercent,
-      status: "Active",
-      notes: form.notes.trim(),
-      createdAt: new Date().toISOString(),
-    };
+    try {
+      setSaving(true);
 
-    addSalesPerson(newSalesPerson);
+      await addSalesPerson({
+        name,
+        mobile: form.mobile.trim(),
+        email: form.email.trim(),
+        type: form.type,
+        commissionPercent,
+        status: "Active",
+        notes: form.notes.trim(),
+      });
 
-    navigate("/sales-persons");
+      navigate("/sales-persons");
+    } catch (err) {
+      console.error("Failed to add sales person:", err);
+      setError("Failed to save Sales Person. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -221,16 +222,18 @@ export default function AddSalesPerson() {
           <button
             type="button"
             onClick={() => navigate("/sales-persons")}
-            className="rounded-lg border border-gray-300 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            disabled={saving}
+            className="rounded-lg border border-gray-300 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Cancel
           </button>
 
           <button
             type="submit"
-            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+            disabled={saving}
+            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Save Sales Person
+            {saving ? "Saving..." : "Save Sales Person"}
           </button>
         </div>
       </form>

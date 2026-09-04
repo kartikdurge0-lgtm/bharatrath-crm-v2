@@ -1,5 +1,5 @@
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useState } from "react";
 
 import {
   getLead,
@@ -20,7 +20,37 @@ export default function LeadDetails() {
 
   const [refresh, setRefresh] = useState(0);
 
+  const [salesPersons, setSalesPersons] = useState<
+    Awaited<ReturnType<typeof getActiveSalesPersons>>
+  >([]);
+
   const lead = leadId ? getLead(leadId) : null;
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSalesPersons() {
+      try {
+        const persons = await getActiveSalesPersons();
+
+        if (!mounted) return;
+
+        setSalesPersons(persons);
+      } catch (error) {
+        console.error("Failed to load sales persons:", error);
+
+        if (mounted) {
+          setSalesPersons([]);
+        }
+      }
+    }
+
+    loadSalesPersons();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   if (!lead) {
     return (
@@ -40,8 +70,6 @@ export default function LeadDetails() {
       </div>
     );
   }
-
-  const salesPersons = getActiveSalesPersons();
 
   const salesPerson = salesPersons.find(
     (person) => person.id === lead.assignedTo,
@@ -157,7 +185,6 @@ export default function LeadDetails() {
             Edit Lead
           </button>
 
-          {/* Create Quotation */}
           {lead.status !== "Lost" && (
             <button
               onClick={handleCreateQuotation}

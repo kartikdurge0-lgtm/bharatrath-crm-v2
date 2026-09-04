@@ -31,7 +31,35 @@ export default function Leads() {
 
   const [showBulkUpload, setShowBulkUpload] = useState(false);
 
-  const salesPersons = getActiveSalesPersons();
+  const [salesPersons, setSalesPersons] = useState<
+    Awaited<ReturnType<typeof getActiveSalesPersons>>
+  >([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSalesPersons() {
+      try {
+        const persons = await getActiveSalesPersons();
+
+        if (!mounted) return;
+
+        setSalesPersons(persons);
+      } catch (error) {
+        console.error("Failed to load sales persons:", error);
+
+        if (mounted) {
+          setSalesPersons([]);
+        }
+      }
+    }
+
+    loadSalesPersons();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const refresh = () => {
     setLeads(getLeads());
@@ -229,10 +257,7 @@ export default function Leads() {
 
   return (
     <div className="space-y-4">
-      {/* =================================================
-          PAGE HEADER
-      ================================================= */}
-
+      {/* PAGE HEADER */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold leading-tight text-slate-900">
@@ -244,11 +269,7 @@ export default function Leads() {
           </p>
         </div>
 
-        {/* ACTION BUTTONS */}
-
         <div className="flex flex-wrap items-center gap-2">
-          {/* ADD LEAD */}
-
           <button
             type="button"
             onClick={() => navigate("/add-lead")}
@@ -256,8 +277,6 @@ export default function Leads() {
           >
             + Add Lead
           </button>
-
-          {/* UPLOAD LEADS */}
 
           <button
             type="button"
@@ -269,13 +288,8 @@ export default function Leads() {
         </div>
       </div>
 
-      {/* =================================================
-          SUMMARY CARDS
-      ================================================= */}
-
+      {/* SUMMARY CARDS */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {/* TOTAL */}
-
         <div className="rounded-xl border border-slate-200 border-l-4 border-l-slate-400 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -291,8 +305,6 @@ export default function Leads() {
             </div>
           </div>
         </div>
-
-        {/* NEW */}
 
         <div className="rounded-xl border border-slate-200 border-l-4 border-l-blue-500 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
@@ -310,8 +322,6 @@ export default function Leads() {
           </div>
         </div>
 
-        {/* FOLLOW-UP */}
-
         <div className="rounded-xl border border-slate-200 border-l-4 border-l-orange-500 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -327,8 +337,6 @@ export default function Leads() {
             </div>
           </div>
         </div>
-
-        {/* PIPELINE */}
 
         <div className="rounded-xl border border-slate-200 border-l-4 border-l-green-500 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
@@ -349,14 +357,9 @@ export default function Leads() {
         </div>
       </div>
 
-      {/* =================================================
-          FILTERS
-      ================================================= */}
-
+      {/* FILTERS */}
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
-          {/* SEARCH */}
-
           <input
             type="text"
             value={search}
@@ -364,8 +367,6 @@ export default function Leads() {
             placeholder="Search leads..."
             className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none placeholder:text-slate-400 transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
           />
-
-          {/* STATUS */}
 
           <select
             value={statusFilter}
@@ -382,8 +383,6 @@ export default function Leads() {
             <option value="Lost">Lost</option>
           </select>
 
-          {/* PRIORITY */}
-
           <select
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value)}
@@ -394,8 +393,6 @@ export default function Leads() {
             <option value="Medium">Medium</option>
             <option value="Low">Low</option>
           </select>
-
-          {/* SOURCE */}
 
           <select
             value={sourceFilter}
@@ -413,8 +410,6 @@ export default function Leads() {
             <option value="Cold Call">Cold Call</option>
             <option value="Other">Other</option>
           </select>
-
-          {/* SALES PERSON */}
 
           <select
             value={salesPersonFilter}
@@ -447,10 +442,7 @@ export default function Leads() {
         </div>
       </div>
 
-      {/* =================================================
-          LEADS TABLE
-      ================================================= */}
-
+      {/* LEADS TABLE */}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="min-w-[1150px] w-full text-sm">
@@ -513,8 +505,6 @@ export default function Leads() {
                       key={lead.id}
                       className="transition hover:bg-green-50/30"
                     >
-                      {/* LEAD */}
-
                       <td className="px-5 py-3.5">
                         <div>
                           <p className="font-semibold text-slate-900">
@@ -545,8 +535,6 @@ export default function Leads() {
                         </div>
                       </td>
 
-                      {/* CONTACT */}
-
                       <td className="px-5 py-3.5">
                         <p className="text-slate-700">{lead.phone || "—"}</p>
 
@@ -555,15 +543,11 @@ export default function Leads() {
                         </p>
                       </td>
 
-                      {/* SOURCE */}
-
                       <td className="px-5 py-3.5">
                         <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
                           {lead.leadSource}
                         </span>
                       </td>
-
-                      {/* SALES PERSON */}
 
                       <td className="px-5 py-3.5">
                         <span className="text-slate-700">
@@ -571,15 +555,11 @@ export default function Leads() {
                         </span>
                       </td>
 
-                      {/* VALUE */}
-
                       <td className="px-5 py-3.5">
                         <span className="font-medium text-slate-900">
                           {formatCurrency(Number(lead.expectedValue || 0))}
                         </span>
                       </td>
-
-                      {/* FOLLOW-UP */}
 
                       <td className="px-5 py-3.5">
                         {lead.nextFollowUpDate ? (
@@ -599,8 +579,6 @@ export default function Leads() {
                         )}
                       </td>
 
-                      {/* PRIORITY */}
-
                       <td className="px-5 py-3.5">
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getPriorityClass(
@@ -610,8 +588,6 @@ export default function Leads() {
                           {lead.priority}
                         </span>
                       </td>
-
-                      {/* STATUS */}
 
                       <td className="px-5 py-3.5">
                         <select
@@ -635,8 +611,6 @@ export default function Leads() {
                           <option value="Lost">Lost</option>
                         </select>
                       </td>
-
-                      {/* ACTION */}
 
                       <td className="px-5 py-3.5">
                         <div className="flex justify-end gap-2">
@@ -687,8 +661,6 @@ export default function Leads() {
           </table>
         </div>
 
-        {/* PAGINATION */}
-
         <Pagination
           currentPage={currentPage}
           totalItems={filteredLeads.length}
@@ -697,10 +669,7 @@ export default function Leads() {
         />
       </div>
 
-      {/* =================================================
-          BULK LEAD UPLOAD
-      ================================================= */}
-
+      {/* BULK LEAD UPLOAD */}
       {showBulkUpload && (
         <BulkLeadUpload
           onClose={() => setShowBulkUpload(false)}

@@ -139,7 +139,9 @@ export default function FollowUps() {
 
   const [followUps, setFollowUps] = useState<FollowUp[]>(() => getFollowUps());
 
-  const salesPersons = getActiveSalesPersons();
+  const [salesPersons, setSalesPersons] = useState<
+    Awaited<ReturnType<typeof getActiveSalesPersons>>
+  >([]);
 
   const [search, setSearch] = useState("");
 
@@ -156,6 +158,36 @@ export default function FollowUps() {
   >("All");
 
   const [currentPage, setCurrentPage] = useState(1);
+
+  /* =================================================
+     LOAD SALES PERSONS
+  ================================================= */
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSalesPersons() {
+      try {
+        const persons = await getActiveSalesPersons();
+
+        if (!mounted) return;
+
+        setSalesPersons(persons);
+      } catch (error) {
+        console.error("Failed to load sales persons:", error);
+
+        if (mounted) {
+          setSalesPersons([]);
+        }
+      }
+    }
+
+    loadSalesPersons();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   /* =================================================
      ASSIGNED PERSON MAP
@@ -374,8 +406,6 @@ export default function FollowUps() {
       ================================================= */}
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {/* Total */}
-
         <button
           type="button"
           onClick={() => setViewFilter("All")}
@@ -396,8 +426,6 @@ export default function FollowUps() {
           <p className="mt-2 text-2xl font-bold text-slate-900">{total}</p>
         </button>
 
-        {/* Today */}
-
         <button
           type="button"
           onClick={() => setViewFilter("Today")}
@@ -417,8 +445,6 @@ export default function FollowUps() {
 
           <p className="mt-2 text-2xl font-bold text-[#3B82F6]">{todayCount}</p>
         </button>
-
-        {/* Overdue */}
 
         <button
           type="button"
@@ -442,8 +468,6 @@ export default function FollowUps() {
           </p>
         </button>
 
-        {/* Pending */}
-
         <button
           type="button"
           onClick={() => setViewFilter("Pending")}
@@ -463,8 +487,6 @@ export default function FollowUps() {
 
           <p className="mt-2 text-2xl font-bold text-[#F59E0B]">{pending}</p>
         </button>
-
-        {/* Completed */}
 
         <button
           type="button"
@@ -493,8 +515,6 @@ export default function FollowUps() {
 
       <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
-          {/* Search */}
-
           <input
             type="text"
             value={search}
@@ -502,8 +522,6 @@ export default function FollowUps() {
             placeholder="Search follow-ups..."
             className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#16A34A] focus:ring-2 focus:ring-green-100"
           />
-
-          {/* Related Type */}
 
           <select
             value={relatedType}
@@ -521,8 +539,6 @@ export default function FollowUps() {
             ))}
           </select>
 
-          {/* Priority */}
-
           <select
             value={priority}
             onChange={(e) =>
@@ -539,8 +555,6 @@ export default function FollowUps() {
             ))}
           </select>
 
-          {/* Status */}
-
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value as FollowUpStatus | "")}
@@ -554,8 +568,6 @@ export default function FollowUps() {
               </option>
             ))}
           </select>
-
-          {/* Assigned To */}
 
           <select
             value={assignedTo}
@@ -576,8 +588,6 @@ export default function FollowUps() {
               ))}
           </select>
         </div>
-
-        {/* Reset */}
 
         {(search ||
           relatedType ||
@@ -664,8 +674,6 @@ export default function FollowUps() {
                       key={followUp.id}
                       className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/70"
                     >
-                      {/* Related Record */}
-
                       <td className="px-5 py-3.5">
                         <div className="text-sm font-semibold text-slate-900">
                           {followUp.relatedName || followUp.clientName || "—"}
@@ -694,8 +702,6 @@ export default function FollowUps() {
                         )}
                       </td>
 
-                      {/* Contact */}
-
                       <td className="px-5 py-3.5">
                         <div className="text-sm text-slate-900">
                           {followUp.contactPerson || "—"}
@@ -707,8 +713,6 @@ export default function FollowUps() {
                           </div>
                         )}
                       </td>
-
-                      {/* Follow-up */}
 
                       <td className="px-5 py-3.5">
                         <div
@@ -738,8 +742,6 @@ export default function FollowUps() {
                         )}
                       </td>
 
-                      {/* Assigned */}
-
                       <td className="px-5 py-3.5">
                         <span className="text-sm text-slate-700">
                           {assignedNames.get(followUp.assignedTo) ||
@@ -747,8 +749,6 @@ export default function FollowUps() {
                             "—"}
                         </span>
                       </td>
-
-                      {/* Priority */}
 
                       <td className="px-5 py-3.5">
                         <span
@@ -760,8 +760,6 @@ export default function FollowUps() {
                         </span>
                       </td>
 
-                      {/* Status */}
-
                       <td className="px-5 py-3.5">
                         <span
                           className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ${statusClass(
@@ -771,8 +769,6 @@ export default function FollowUps() {
                           {followUp.status}
                         </span>
                       </td>
-
-                      {/* Action */}
 
                       <td className="px-5 py-3.5">
                         <div className="flex items-center justify-end gap-2">
@@ -810,8 +806,6 @@ export default function FollowUps() {
                 </tbody>
               </table>
             </div>
-
-            {/* Pagination */}
 
             <Pagination
               currentPage={currentPage}

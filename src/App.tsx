@@ -1,6 +1,12 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import DashboardLayout from "./layouts/DashboardLayout";
+import ProtectedRoute from "./components/ProtectedRoute";
+
+// Authentication
+import Login from "./pages/Login";
+import AuthCallback from "./pages/AuthCallback";
+import { supabase } from "./lib/supabase";
 
 // Dashboard
 import Dashboard from "./pages/Dashboard";
@@ -62,138 +68,162 @@ import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 
 function App() {
+  console.log("Supabase client:", supabase);
+
   return (
     <BrowserRouter>
       <Routes>
-        <Route element={<DashboardLayout />}>
-          {/* =========================================
-              DASHBOARD
-          ========================================= */}
+        {/* =========================================
+            AUTHENTICATION
+        ========================================= */}
 
-          <Route path="/" element={<Dashboard />} />
+        <Route path="/login" element={<Login />} />
 
-          {/* =========================================
-              CLIENT MANAGEMENT
-          ========================================= */}
+        <Route path="/auth/callback" element={<AuthCallback />} />
 
-          <Route path="/clients" element={<Clients />} />
+        {/* =========================================
+            PROTECTED CRM
+        ========================================= */}
 
-          <Route path="/add-client" element={<AddClient />} />
+        <Route element={<ProtectedRoute />}>
+          <Route element={<DashboardLayout />}>
+            {/* =========================================
+                DASHBOARD
+            ========================================= */}
 
-          <Route path="/clients/:clientId" element={<ClientDetails />} />
+            <Route path="/" element={<Dashboard />} />
 
-          <Route path="/clients/:clientId/edit" element={<EditClient />} />
+            {/* =========================================
+                CLIENT MANAGEMENT
+            ========================================= */}
 
-          <Route path="/archived-clients" element={<ArchivedClients />} />
+            <Route path="/clients" element={<Clients />} />
 
-          {/* =========================================
-              RENEWALS
-          ========================================= */}
+            <Route path="/add-client" element={<AddClient />} />
 
-          <Route path="/renewals" element={<Renewals />} />
+            <Route path="/clients/:clientId" element={<ClientDetails />} />
 
-          <Route path="/add-renewal" element={<AddRenewal />} />
+            <Route path="/clients/:clientId/edit" element={<EditClient />} />
 
-          <Route path="/renewals/:renewalId" element={<RenewalDetails />} />
+            <Route path="/archived-clients" element={<ArchivedClients />} />
 
-          <Route path="/renewals/:renewalId/edit" element={<EditRenewal />} />
+            {/* =========================================
+                RENEWALS
+            ========================================= */}
 
-          {/* =========================================
-              FOLLOW-UPS
-          ========================================= */}
+            <Route path="/renewals" element={<Renewals />} />
 
-          <Route path="/follow-ups" element={<FollowUps />} />
+            <Route path="/add-renewal" element={<AddRenewal />} />
 
-          <Route path="/add-follow-up" element={<AddFollowUp />} />
+            <Route path="/renewals/:renewalId" element={<RenewalDetails />} />
 
-          <Route path="/follow-ups/:followUpId" element={<FollowUpDetails />} />
+            <Route path="/renewals/:renewalId/edit" element={<EditRenewal />} />
 
-          <Route
-            path="/follow-ups/:followUpId/edit"
-            element={<EditFollowUp />}
-          />
+            {/* =========================================
+                FOLLOW-UPS
+            ========================================= */}
 
-          {/* =========================================
-              LEADS
-          ========================================= */}
+            <Route path="/follow-ups" element={<FollowUps />} />
 
-          <Route path="/leads" element={<Leads />} />
+            <Route path="/add-follow-up" element={<AddFollowUp />} />
 
-          <Route path="/add-lead" element={<AddLead />} />
+            <Route
+              path="/follow-ups/:followUpId"
+              element={<FollowUpDetails />}
+            />
 
-          <Route path="/leads" element={<Leads />} />
-          <Route path="/add-lead" element={<AddLead />} />
-          <Route path="/leads/:leadId" element={<LeadDetails />} />
-          <Route path="/leads/:leadId/edit" element={<EditLead />} />
+            <Route
+              path="/follow-ups/:followUpId/edit"
+              element={<EditFollowUp />}
+            />
 
-          {/* =========================================
-              SALES PERSONS
-          ========================================= */}
+            {/* =========================================
+                LEADS
+            ========================================= */}
 
-          <Route path="/sales-persons" element={<SalesPersons />} />
+            <Route path="/leads" element={<Leads />} />
 
-          <Route path="/add-sales-person" element={<AddSalesPerson />} />
+            <Route path="/add-lead" element={<AddLead />} />
 
-          {/* =========================================
-              SERVICES
-          ========================================= */}
+            <Route path="/leads/:leadId" element={<LeadDetails />} />
 
-          <Route path="/services" element={<Services />} />
+            <Route path="/leads/:leadId/edit" element={<EditLead />} />
 
-          <Route path="/add-service" element={<AddService />} />
+            {/* =========================================
+                SALES PERSONS
+            ========================================= */}
 
-          <Route path="/services/:serviceId" element={<ServiceDetails />} />
+            <Route path="/sales-persons" element={<SalesPersons />} />
 
-          <Route path="/services/:serviceId/edit" element={<EditService />} />
+            <Route path="/add-sales-person" element={<AddSalesPerson />} />
 
-          {/* =========================================
-              QUOTATIONS
-          ========================================= */}
+            {/* =========================================
+                SERVICES
+            ========================================= */}
 
-          <Route path="/quotations" element={<Quotations />} />
+            <Route path="/services" element={<Services />} />
 
-          <Route path="/add-quotation" element={<AddQuotation />} />
+            <Route path="/add-service" element={<AddService />} />
 
-          <Route
-            path="/quotations/:quotationId"
-            element={<QuotationDetails />}
-          />
+            <Route path="/services/:serviceId" element={<ServiceDetails />} />
 
-          <Route
-            path="/quotations/:quotationId/edit"
-            element={<EditQuotation />}
-          />
+            <Route path="/services/:serviceId/edit" element={<EditService />} />
 
-          {/* =========================================
-              INVOICES
-          ========================================= */}
+            {/* =========================================
+                QUOTATIONS
+            ========================================= */}
 
-          <Route path="/invoices" element={<Invoices />} />
+            <Route path="/quotations" element={<Quotations />} />
 
-          <Route path="/add-invoice" element={<AddInvoice />} />
+            <Route path="/add-quotation" element={<AddQuotation />} />
 
-          <Route path="/invoices/:invoiceId" element={<InvoiceDetails />} />
+            <Route
+              path="/quotations/:quotationId"
+              element={<QuotationDetails />}
+            />
 
-          <Route path="/invoices/:invoiceId/edit" element={<EditInvoice />} />
+            <Route
+              path="/quotations/:quotationId/edit"
+              element={<EditQuotation />}
+            />
 
-          {/* =========================================
-              PAYMENTS
-          ========================================= */}
+            {/* =========================================
+                INVOICES
+            ========================================= */}
 
-          <Route path="/payments" element={<Payments />} />
+            <Route path="/invoices" element={<Invoices />} />
 
-          {/* =========================================
-              REPORTS
-          ========================================= */}
+            <Route path="/add-invoice" element={<AddInvoice />} />
 
-          <Route path="/reports" element={<Reports />} />
+            <Route path="/invoices/:invoiceId" element={<InvoiceDetails />} />
 
-          {/* =========================================
-              SETTINGS
-          ========================================= */}
+            <Route path="/invoices/:invoiceId/edit" element={<EditInvoice />} />
 
-          <Route path="/settings" element={<Settings />} />
+            {/* =========================================
+                PAYMENTS
+            ========================================= */}
+
+            <Route path="/payments" element={<Payments />} />
+
+            {/* =========================================
+                REPORTS
+            ========================================= */}
+
+            <Route path="/reports" element={<Reports />} />
+
+            {/* =========================================
+                SETTINGS
+            ========================================= */}
+
+            <Route path="/settings" element={<Settings />} />
+          </Route>
         </Route>
+
+        {/* =========================================
+            FALLBACK
+        ========================================= */}
+
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
   );

@@ -14,7 +14,10 @@ import { getClients } from "../data/clientStore";
 import { getQuotations } from "../data/quotationStore";
 import { getRenewals } from "../data/renewalStore";
 
-import { getActiveSalesPersons } from "../data/salesPersonStore";
+import {
+  getActiveSalesPersons,
+  type SalesPerson,
+} from "../data/salesPersonStore";
 
 type RelatedRecord = {
   id: string;
@@ -71,16 +74,56 @@ export default function EditFollowUp() {
 
   const followUp = followUpId ? getFollowUp(followUpId) : null;
 
-  const salesPersons = getActiveSalesPersons();
+  /* =======================================================
+     SALES PERSONS
+  ======================================================= */
+
+  const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSalesPersons() {
+      try {
+        const persons = await getActiveSalesPersons();
+
+        if (!mounted) {
+          return;
+        }
+
+        setSalesPersons(persons);
+      } catch (error) {
+        console.error("Failed to load sales persons:", error);
+
+        if (mounted) {
+          setSalesPersons([]);
+        }
+      }
+    }
+
+    loadSalesPersons();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const internalTeam = salesPersons.filter(
     (person) => person.type === "Staff" || person.type === "Part-time",
   );
 
+  /* =======================================================
+     RELATED DATA
+  ======================================================= */
+
   const leads = getLeads();
   const clients = getClients();
   const quotations = getQuotations();
   const renewals = getRenewals();
+
+  /* =======================================================
+     FORM STATE
+  ======================================================= */
 
   const [form, setForm] = useState({
     relatedType: (followUp?.relatedType || "Lead") as FollowUpRelatedType,
@@ -120,6 +163,10 @@ export default function EditFollowUp() {
 
   const [error, setError] = useState("");
 
+  /* =======================================================
+     RELATED RECORDS
+  ======================================================= */
+
   const relatedRecords = useMemo<RelatedRecord[]>(() => {
     if (form.relatedType === "Lead") {
       return leads.map((lead) => ({
@@ -157,6 +204,10 @@ export default function EditFollowUp() {
     }));
   }, [form.relatedType, leads, clients, quotations, renewals]);
 
+  /* =======================================================
+     AUTO FILL CONTACT DETAILS
+  ======================================================= */
+
   useEffect(() => {
     if (!followUp) return;
 
@@ -190,12 +241,20 @@ export default function EditFollowUp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.relatedId, form.relatedType]);
 
+  /* =======================================================
+     UPDATE FIELD
+  ======================================================= */
+
   function updateField(field: string, value: string) {
     setForm((previous) => ({
       ...previous,
       [field]: value,
     }));
   }
+
+  /* =======================================================
+     RELATED TYPE CHANGE
+  ======================================================= */
 
   function handleRelatedTypeChange(type: FollowUpRelatedType) {
     setForm((previous) => ({
@@ -207,6 +266,10 @@ export default function EditFollowUp() {
     }));
   }
 
+  /* =======================================================
+     RELATED RECORD CHANGE
+  ======================================================= */
+
   function handleRelatedRecordChange(recordId: string) {
     const selected = relatedRecords.find((record) => record.id === recordId);
 
@@ -217,6 +280,10 @@ export default function EditFollowUp() {
       phone: selected?.phone || "",
     }));
   }
+
+  /* =======================================================
+     SUBMIT
+  ======================================================= */
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -299,6 +366,10 @@ export default function EditFollowUp() {
     navigate(`/follow-ups/${followUp.id}`);
   }
 
+  /* =======================================================
+     NOT FOUND
+  ======================================================= */
+
   if (!followUp) {
     return (
       <div className="max-w-5xl mx-auto">
@@ -325,9 +396,14 @@ export default function EditFollowUp() {
     );
   }
 
+  /* =======================================================
+     RENDER
+  ======================================================= */
+
   return (
     <div className="max-w-5xl mx-auto">
       {/* Header */}
+
       <div className="mb-7">
         <button
           type="button"
@@ -352,7 +428,10 @@ export default function EditFollowUp() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Related Record */}
+        {/* =================================================
+            RELATED RECORD
+        ================================================= */}
+
         <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-200 px-6 py-5">
             <h2 className="text-lg font-semibold text-gray-900">
@@ -378,11 +457,8 @@ export default function EditFollowUp() {
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="Lead">Lead</option>
-
                 <option value="Client">Client</option>
-
                 <option value="Quotation">Quotation</option>
-
                 <option value="Renewal">Renewal</option>
               </select>
             </div>
@@ -409,7 +485,10 @@ export default function EditFollowUp() {
           </div>
         </section>
 
-        {/* Contact & Assignment */}
+        {/* =================================================
+            CONTACT & ASSIGNMENT
+        ================================================= */}
+
         <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-200 px-6 py-5">
             <h2 className="text-lg font-semibold text-gray-900">
@@ -468,7 +547,10 @@ export default function EditFollowUp() {
           </div>
         </section>
 
-        {/* Schedule */}
+        {/* =================================================
+            SCHEDULE
+        ================================================= */}
+
         <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-200 px-6 py-5">
             <h2 className="text-lg font-semibold text-gray-900">Follow-up</h2>
@@ -573,7 +655,10 @@ export default function EditFollowUp() {
           </div>
         </section>
 
-        {/* Next Action */}
+        {/* =================================================
+            NEXT ACTION
+        ================================================= */}
+
         <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-200 px-6 py-5">
             <h2 className="text-lg font-semibold text-gray-900">Next Action</h2>
@@ -626,7 +711,10 @@ export default function EditFollowUp() {
           </div>
         </section>
 
-        {/* Notes */}
+        {/* =================================================
+            NOTES
+        ================================================= */}
+
         <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-200 px-6 py-5">
             <h2 className="text-lg font-semibold text-gray-900">Notes</h2>
@@ -677,7 +765,10 @@ export default function EditFollowUp() {
           </div>
         </section>
 
-        {/* Actions */}
+        {/* =================================================
+            ACTIONS
+        ================================================= */}
+
         <div className="flex justify-end gap-3 pb-8">
           <button
             type="button"

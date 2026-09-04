@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
   getInvoices,
@@ -394,10 +394,33 @@ export default function Reports() {
 
   const renewals = useMemo<Renewal[]>(() => getRenewals(), [refreshKey]);
 
-  const salesPersons = useMemo<SalesPerson[]>(
-    () => getActiveSalesPersons(),
-    [refreshKey],
-  );
+  const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSalesPersons() {
+      try {
+        const persons = await getActiveSalesPersons();
+
+        if (!mounted) return;
+
+        setSalesPersons(persons);
+      } catch (error) {
+        console.error("Failed to load sales persons:", error);
+
+        if (mounted) {
+          setSalesPersons([]);
+        }
+      }
+    }
+
+    loadSalesPersons();
+
+    return () => {
+      mounted = false;
+    };
+  }, [refreshKey]);
 
   /* -------------------------------------------------------
      DATE RANGE

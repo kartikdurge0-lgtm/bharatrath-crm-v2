@@ -1,3 +1,5 @@
+import { supabase } from "../lib/supabase";
+
 export type SalesPersonType = "Staff" | "Part-time" | "External";
 
 export type SalesPersonStatus = "Active" | "Inactive";
@@ -15,174 +17,252 @@ export type SalesPerson = {
   updatedAt?: string;
 };
 
-const STORAGE_KEY = "crm-sales-persons";
+type SalesPersonRow = {
+  id: number;
+  name: string;
+  email: string | null;
+  mobile: string | null;
+  type: SalesPersonType;
+  commission_percent: number | null;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
-const DEFAULT_SALES_PERSONS: SalesPerson[] = [
-  {
-    id: "SP-001",
-    name: "Vijay",
-    mobile: "",
-    email: "",
-    type: "Staff",
-    commissionPercent: 0,
-    status: "Active",
-    notes: "",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "SP-002",
-    name: "Alok",
-    mobile: "",
-    email: "",
-    type: "Staff",
-    commissionPercent: 0,
-    status: "Active",
-    notes: "",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "SP-003",
-    name: "Kartik",
-    mobile: "",
-    email: "",
-    type: "Staff",
-    commissionPercent: 0,
-    status: "Active",
-    notes: "",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "SP-004",
-    name: "Sandesh",
-    mobile: "",
-    email: "",
-    type: "Staff",
-    commissionPercent: 0,
-    status: "Active",
-    notes: "",
-    createdAt: new Date().toISOString(),
-  },
-];
-
-export function getSalesPersons(): SalesPerson[] {
-  const saved = localStorage.getItem(STORAGE_KEY);
-
-  if (!saved) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_SALES_PERSONS));
-
-    return DEFAULT_SALES_PERSONS;
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(saved);
-
-    if (!Array.isArray(parsed)) {
-      return DEFAULT_SALES_PERSONS;
-    }
-
-    return parsed as SalesPerson[];
-  } catch {
-    return DEFAULT_SALES_PERSONS;
-  }
+function formatSalesPersonId(id: number): string {
+  return `SP-${String(id).padStart(3, "0")}`;
 }
 
-export function saveSalesPersons(salesPersons: SalesPerson[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(salesPersons));
+function mapSalesPerson(row: SalesPersonRow): SalesPerson {
+  return {
+    id: formatSalesPersonId(row.id),
+    name: row.name,
+    mobile: row.mobile ?? "",
+    email: row.email ?? "",
+    type: row.type,
+    commissionPercent: Number(row.commission_percent ?? 0),
+    status: row.is_active ? "Active" : "Inactive",
+    notes: row.notes ?? "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
-export function getSalesPerson(id: string): SalesPerson | null {
-  return getSalesPersons().find((salesPerson) => salesPerson.id === id) ?? null;
-}
+function getDatabaseId(displayId: string): number | null {
+  const match = displayId.match(/^SP-(\d+)$/i);
 
-export function generateSalesPersonId(): string {
-  const salesPersons = getSalesPersons();
-
-  const numbers = salesPersons
-    .map((salesPerson) => {
-      const match = salesPerson.id.match(/SP-(\d+)/);
-
-      return match ? Number(match[1]) : 0;
-    })
-    .filter((number) => Number.isFinite(number));
-
-  const nextNumber = numbers.length > 0 ? Math.max(...numbers) + 1 : 1;
-
-  return `SP-${String(nextNumber).padStart(3, "0")}`;
-}
-
-export function addSalesPerson(salesPerson: SalesPerson): SalesPerson {
-  const salesPersons = getSalesPersons();
-
-  salesPersons.push(salesPerson);
-
-  saveSalesPersons(salesPersons);
-
-  return salesPerson;
-}
-
-export function updateSalesPerson(
-  id: string,
-  updates: Partial<SalesPerson>,
-): SalesPerson | null {
-  const salesPersons = getSalesPersons();
-
-  const index = salesPersons.findIndex((salesPerson) => salesPerson.id === id);
-
-  if (index === -1) {
+  if (!match) {
     return null;
   }
 
-  const updatedSalesPerson: SalesPerson = {
-    ...salesPersons[index],
-    ...updates,
-    updatedAt: new Date().toISOString(),
-  };
+  const id = Number(match[1]);
 
-  salesPersons[index] = updatedSalesPerson;
-
-  saveSalesPersons(salesPersons);
-
-  return updatedSalesPerson;
+  return Number.isFinite(id) ? id : null;
 }
 
-export function deactivateSalesPerson(id: string): SalesPerson | null {
-  return updateSalesPerson(id, {
+/* =====================================================
+   GET ALL
+===================================================== */
+
+export async function getSalesPersons(): Promise<SalesPerson[]> {
+  const { data, error } = await supabase
+    .from("sales_persons")
+    .select("*")
+    .order("id", { ascending: true });
+
+  if (error) {
+    console.error("Supabase sales persons error:", error);
+    return [];
+  }
+
+  return (data as SalesPersonRow[]).map(mapSalesPerson);
+}
+
+/* =====================================================
+   GET ONE
+===================================================== */
+
+export async function getSalesPerson(
+  displayId: string,
+): Promise<SalesPerson | null> {
+  const databaseId = getDatabaseId(displayId);
+
+  if (databaseId === null) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("sales_persons")
+    .select("*")
+    .eq("id", databaseId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Supabase sales person error:", error);
+    return null;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return mapSalesPerson(data as SalesPersonRow);
+}
+
+/* =====================================================
+   ADD
+===================================================== */
+
+export async function addSalesPerson(
+  salesPerson: Omit<SalesPerson, "id" | "createdAt" | "updatedAt">,
+): Promise<SalesPerson | null> {
+  const { data, error } = await supabase
+    .from("sales_persons")
+    .insert({
+      name: salesPerson.name,
+      mobile: salesPerson.mobile || null,
+      email: salesPerson.email || null,
+      type: salesPerson.type,
+      commission_percent: salesPerson.commissionPercent,
+      is_active: salesPerson.status === "Active",
+      notes: salesPerson.notes || null,
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    console.error("Add sales person error:", error);
+    return null;
+  }
+
+  return mapSalesPerson(data as SalesPersonRow);
+}
+
+/* =====================================================
+   UPDATE
+===================================================== */
+
+export async function updateSalesPerson(
+  displayId: string,
+  updates: Partial<SalesPerson>,
+): Promise<SalesPerson | null> {
+  const databaseId = getDatabaseId(displayId);
+
+  if (databaseId === null) {
+    return null;
+  }
+
+  const databaseUpdates: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (updates.name !== undefined) {
+    databaseUpdates.name = updates.name;
+  }
+
+  if (updates.mobile !== undefined) {
+    databaseUpdates.mobile = updates.mobile || null;
+  }
+
+  if (updates.email !== undefined) {
+    databaseUpdates.email = updates.email || null;
+  }
+
+  if (updates.type !== undefined) {
+    databaseUpdates.type = updates.type;
+  }
+
+  if (updates.commissionPercent !== undefined) {
+    databaseUpdates.commission_percent = updates.commissionPercent;
+  }
+
+  if (updates.status !== undefined) {
+    databaseUpdates.is_active = updates.status === "Active";
+  }
+
+  if (updates.notes !== undefined) {
+    databaseUpdates.notes = updates.notes || null;
+  }
+
+  const { data, error } = await supabase
+    .from("sales_persons")
+    .update(databaseUpdates)
+    .eq("id", databaseId)
+    .select("*")
+    .single();
+
+  if (error) {
+    console.error("Update sales person error:", error);
+    return null;
+  }
+
+  return mapSalesPerson(data as SalesPersonRow);
+}
+
+/* =====================================================
+   ACTIVATE / DEACTIVATE
+===================================================== */
+
+export async function deactivateSalesPerson(
+  displayId: string,
+): Promise<SalesPerson | null> {
+  return updateSalesPerson(displayId, {
     status: "Inactive",
   });
 }
 
-export function activateSalesPerson(id: string): SalesPerson | null {
-  return updateSalesPerson(id, {
+export async function activateSalesPerson(
+  displayId: string,
+): Promise<SalesPerson | null> {
+  return updateSalesPerson(displayId, {
     status: "Active",
   });
 }
 
-export function deleteSalesPerson(id: string): boolean {
-  const salesPersons = getSalesPersons();
+/* =====================================================
+   ACTIVE SALES PERSONS
+===================================================== */
 
-  const exists = salesPersons.some((salesPerson) => salesPerson.id === id);
+export async function getActiveSalesPersons(): Promise<SalesPerson[]> {
+  const { data, error } = await supabase
+    .from("sales_persons")
+    .select("*")
+    .eq("is_active", true)
+    .order("id", { ascending: true });
 
-  if (!exists) {
-    return false;
+  if (error) {
+    console.error("Supabase active sales persons error:", error);
+    return [];
   }
 
-  const updatedSalesPersons = salesPersons.filter(
-    (salesPerson) => salesPerson.id !== id,
-  );
-
-  saveSalesPersons(updatedSalesPersons);
-
-  return true;
+  return (data as SalesPersonRow[]).map(mapSalesPerson);
 }
 
-export function getActiveSalesPersons(): SalesPerson[] {
-  return getSalesPersons().filter(
-    (salesPerson) => salesPerson.status === "Active",
-  );
+/* =====================================================
+   INTERNAL TEAM MEMBERS
+===================================================== */
+
+export async function getInternalTeamMembers(): Promise<SalesPerson[]> {
+  const { data, error } = await supabase
+    .from("sales_persons")
+    .select("*")
+    .eq("is_active", true)
+    .in("type", ["Staff", "Part-time"])
+    .order("id", { ascending: true });
+
+  if (error) {
+    console.error("Supabase internal team members error:", error);
+    return [];
+  }
+
+  return (data as SalesPersonRow[]).map(mapSalesPerson);
 }
 
-export function getInternalTeamMembers(): SalesPerson[] {
-  return getActiveSalesPersons().filter(
-    (person) => person.type === "Staff" || person.type === "Part-time",
-  );
+/* =====================================================
+   LEGACY HELPERS
+===================================================== */
+
+export function generateSalesPersonId(): string {
+  return "SP-NEW";
 }

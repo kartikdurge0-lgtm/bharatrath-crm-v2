@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  addService,
-  generateServiceId,
-  type BillingType,
-  type GSTPercent,
-  type Service,
-  type ServiceCategory,
+import { supabase } from "../lib/supabase";
+import type {
+  BillingType,
+  GSTPercent,
+  Service,
+  ServiceCategory,
 } from "../data/serviceStore";
 
 export default function AddService() {
@@ -31,10 +30,10 @@ export default function AddService() {
     }));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     /* -------------------------------
-       Validation
-    -------------------------------- */
+     Validation
+  -------------------------------- */
 
     if (!form.service_name.trim()) {
       window.alert("Please enter the service name.");
@@ -71,34 +70,80 @@ export default function AddService() {
     }
 
     /* -------------------------------
-       Create Service
-    -------------------------------- */
+     Generate Service Code
+  -------------------------------- */
+
+    const { data: existingServices, error: fetchError } = await supabase
+      .from("services")
+      .select("service_code");
+
+    if (fetchError) {
+      console.error("Failed to check service codes:", fetchError);
+      window.alert("Unable to create service. Please try again.");
+      return;
+    }
+
+    let maxNumber = 0;
+
+    (existingServices || []).forEach((service) => {
+      const match = String(service.service_code || "").match(/^SRV-(\d+)$/);
+
+      if (match) {
+        const number = Number(match[1]);
+
+        if (number > maxNumber) {
+          maxNumber = number;
+        }
+      }
+    });
+
+    const serviceCode = `SRV-${String(maxNumber + 1).padStart(3, "0")}`;
+
+    /* -------------------------------
+     Save to Supabase
+  -------------------------------- */
+
+    const { data, error } = await supabase
+      .from("services")
+      .insert({
+        service_code: serviceCode,
+        name: form.service_name.trim(),
+        category: form.category,
+        description: form.description.trim(),
+        default_price: price,
+        billing_type: form.billing_type,
+        sac_code: form.sac_code.trim(),
+        gst_percent: gst,
+        notes: form.notes.trim(),
+        is_active: form.status === "Active",
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Failed to add service:", error);
+      window.alert(error.message);
+      return;
+    }
 
     const newService: Service = {
-      id: generateServiceId(),
-
-      service_name: form.service_name.trim(),
-
-      category: form.category,
-
-      description: form.description.trim(),
-
-      default_price: price,
-
-      billing_type: form.billing_type,
-
-      sac_code: form.sac_code.trim(),
-
-      gst_percent: gst,
-
-      status: form.status,
-
-      notes: form.notes.trim(),
-
-      createdAt: new Date().toISOString(),
+      id: data.service_code,
+      service_name: data.name,
+      category: data.category || "",
+      description: data.description || "",
+      default_price: Number(data.default_price || 0),
+      billing_type: data.billing_type,
+      sac_code: data.sac_code || "",
+      gst_percent: Number(data.gst_percent || 0) as GSTPercent,
+      status: data.is_active ? "Active" : "Inactive",
+      notes: data.notes || "",
+      createdAt: data.created_at
+        ? data.created_at.substring(0, 10)
+        : new Date().toISOString().substring(0, 10),
+      updatedAt: data.updated_at || undefined,
     };
 
-    addService(newService);
+    console.log("Service created in Supabase:", newService);
 
     window.alert("Service added successfully.");
 

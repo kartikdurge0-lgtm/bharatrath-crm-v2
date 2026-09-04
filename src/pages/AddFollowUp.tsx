@@ -39,15 +39,9 @@ export default function AddFollowUp() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  /*
-   * Only internal Bharatrath team members should be available
-   * for Follow-up Assigned To.
-   *
-   * External Sales Persons are NOT included here.
-   */
-  const teamMembers = getActiveSalesPersons().filter(
-    (person) => person.type === "Staff" || person.type === "Part-time",
-  );
+  const [teamMembers, setTeamMembers] = useState<
+    Awaited<ReturnType<typeof getActiveSalesPersons>>
+  >([]);
 
   const leads = getLeads();
   const clients = getClients();
@@ -89,6 +83,29 @@ export default function AddFollowUp() {
   });
 
   const [error, setError] = useState("");
+
+  /*
+   * Load active internal Bharatrath team members.
+   * External Sales Persons are excluded.
+   */
+  useEffect(() => {
+    const loadTeamMembers = async () => {
+      try {
+        const persons = await getActiveSalesPersons();
+
+        setTeamMembers(
+          persons.filter(
+            (person) => person.type === "Staff" || person.type === "Part-time",
+          ),
+        );
+      } catch (error) {
+        console.error("Failed to load team members:", error);
+        setError("Failed to load team members.");
+      }
+    };
+
+    loadTeamMembers();
+  }, []);
 
   /*
    * Convert different CRM records into one
@@ -371,11 +388,8 @@ export default function AddFollowUp() {
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="Lead">Lead</option>
-
                 <option value="Client">Client</option>
-
                 <option value="Quotation">Quotation</option>
-
                 <option value="Renewal">Renewal</option>
               </select>
             </div>

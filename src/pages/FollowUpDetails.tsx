@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
@@ -28,7 +28,6 @@ function formatTime(time: string): string {
   if (!time) return "-";
 
   const [hours, minutes] = time.split(":");
-
   const hour = Number(hours);
 
   if (!Number.isFinite(hour)) {
@@ -36,7 +35,6 @@ function formatTime(time: string): string {
   }
 
   const suffix = hour >= 12 ? "PM" : "AM";
-
   const displayHour = hour % 12 === 0 ? 12 : hour % 12;
 
   return `${displayHour}:${minutes} ${suffix}`;
@@ -107,39 +105,58 @@ export default function FollowUpDetails() {
   const navigate = useNavigate();
   const { followUpId } = useParams();
 
-  const [refresh, setRefresh] = useState(0);
+  const [, setRefresh] = useState(0);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Force component refresh after Complete/Reopen.
-  void refresh;
+  const [salesPersons, setSalesPersons] = useState<
+    Awaited<ReturnType<typeof getActiveSalesPersons>>
+  >([]);
 
   const followUp = followUpId ? getFollowUp(followUpId) : null;
 
-  const salesPersons = getActiveSalesPersons();
+  useEffect(() => {
+    let mounted = true;
 
-  /*
-   * Follow-up Assigned To should be an
-   * internal Bharatrath team member.
-   *
-   * External sales persons are NOT included here.
-   */
+    async function loadSalesPersons() {
+      try {
+        const persons = await getActiveSalesPersons();
+
+        if (!mounted) return;
+
+        setSalesPersons(persons);
+      } catch (error) {
+        console.error("Failed to load sales persons:", error);
+
+        if (mounted) {
+          setSalesPersons([]);
+        }
+      }
+    }
+
+    loadSalesPersons();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const internalTeam = salesPersons.filter(
     (person) => person.type === "Staff" || person.type === "Part-time",
   );
 
   if (!followUp) {
     return (
-      <div className="max-w-5xl mx-auto">
+      <div className="mx-auto max-w-5xl">
         <button
           type="button"
           onClick={() => navigate("/follow-ups")}
-          className="mb-5 text-blue-600 hover:text-blue-800 text-sm font-medium"
+          className="mb-5 text-sm font-medium text-blue-600 hover:text-blue-800"
         >
           ← Back to Follow-ups
         </button>
 
         <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-          <div className="text-4xl mb-3">📞</div>
+          <div className="mb-3 text-4xl">📞</div>
 
           <h2 className="text-xl font-semibold text-slate-900">
             Follow-up not found
@@ -158,41 +175,37 @@ export default function FollowUpDetails() {
   );
 
   const relatedName = followUp.relatedName || followUp.clientName || "-";
-
   const overdue = isOverdue(followUp);
 
   const handleComplete = () => {
     completeFollowUp(followUp.id);
-
     setRefresh((value) => value + 1);
   };
 
   const handleReopen = () => {
     reopenFollowUp(followUp.id);
-
     setRefresh((value) => value + 1);
   };
 
   const handleDelete = () => {
     deleteFollowUp(followUp.id);
-
     navigate("/follow-ups");
   };
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="mx-auto max-w-5xl">
       {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between mb-7">
+      <div className="mb-7 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <button
             type="button"
             onClick={() => navigate("/follow-ups")}
-            className="mb-4 text-blue-600 hover:text-blue-800 text-sm font-medium"
+            className="mb-4 text-sm font-medium text-blue-600 hover:text-blue-800"
           >
             ← Back to Follow-ups
           </button>
 
-          <div className="flex flex-wrap items-center gap-2 mb-2">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
             <span className="text-sm text-slate-500">{followUp.id}</span>
 
             {followUp.relatedType && (
@@ -386,7 +399,7 @@ export default function FollowUpDetails() {
               Notes
             </p>
 
-            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 whitespace-pre-wrap">
+            <div className="mt-2 whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
               {followUp.notes || "No notes added."}
             </div>
           </div>
@@ -396,7 +409,7 @@ export default function FollowUpDetails() {
               Client Response
             </p>
 
-            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 whitespace-pre-wrap">
+            <div className="mt-2 whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
               {followUp.clientResponse || "No client response recorded."}
             </div>
           </div>
@@ -406,7 +419,7 @@ export default function FollowUpDetails() {
               Internal Notes
             </p>
 
-            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 whitespace-pre-wrap">
+            <div className="mt-2 whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
               {followUp.internalNotes || "No internal notes added."}
             </div>
           </div>

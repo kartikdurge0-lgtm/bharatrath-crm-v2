@@ -1,75 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { getServices, saveServices, type Service } from "../data/serviceStore";
-
-const defaultServices: Service[] = [
-  {
-    id: "SRV-001",
-    service_name: "Website Development",
-    category: "Website",
-    description: "Professional website development and setup.",
-    default_price: 25000,
-    billing_type: "One Time",
-    sac_code: "998314",
-    gst_percent: 18,
-    status: "Active",
-    notes: "",
-    createdAt: "2026-08-29",
-  },
-  {
-    id: "SRV-002",
-    service_name: "Website Hosting",
-    category: "Domain & Hosting",
-    description: "Website hosting and server management.",
-    default_price: 3500,
-    billing_type: "Yearly",
-    sac_code: "998315",
-    gst_percent: 18,
-    status: "Active",
-    notes: "",
-    createdAt: "2026-08-29",
-  },
-  {
-    id: "SRV-003",
-    service_name: "Domain Registration",
-    category: "Domain & Hosting",
-    description: "Domain registration and renewal service.",
-    default_price: 1200,
-    billing_type: "Yearly",
-    sac_code: "998315",
-    gst_percent: 18,
-    status: "Active",
-    notes: "",
-    createdAt: "2026-08-29",
-  },
-  {
-    id: "SRV-004",
-    service_name: "Digital Marketing",
-    category: "Digital Marketing",
-    description: "Social media and digital marketing services.",
-    default_price: 10000,
-    billing_type: "Monthly",
-    sac_code: "998365",
-    gst_percent: 18,
-    status: "Active",
-    notes: "",
-    createdAt: "2026-08-29",
-  },
-  {
-    id: "SRV-005",
-    service_name: "Website AMC",
-    category: "AMC",
-    description: "Annual website maintenance and support.",
-    default_price: 5900,
-    billing_type: "Yearly",
-    sac_code: "998313",
-    gst_percent: 18,
-    status: "Active",
-    notes: "",
-    createdAt: "2026-08-29",
-  },
-];
+import { type Service } from "../data/serviceStore";
+import { supabase } from "../lib/supabase";
 
 const PAGE_SIZE = 6;
 
@@ -90,27 +23,36 @@ export default function Services() {
      Load services
   -------------------------------- */
 
-  const loadServices = () => {
-    const existingServices = getServices();
+  const loadServices = async () => {
+    const { data, error } = await supabase
+      .from("services")
+      .select("*")
+      .order("id", { ascending: true });
 
-    if (existingServices.length === 0) {
-      saveServices(defaultServices);
-      setServices(defaultServices);
+    if (error) {
+      console.error("Failed to load services:", error);
       return;
     }
 
-    setServices(existingServices);
+    const mappedServices: Service[] = (data || []).map((service) => ({
+      id: service.service_code || `SRV-${String(service.id).padStart(3, "0")}`,
+      service_name: service.name,
+      category: service.category || "",
+      description: service.description || "",
+      default_price: Number(service.default_price || 0),
+      billing_type: service.billing_type,
+      sac_code: service.sac_code || "",
+      gst_percent: Number(service.gst_percent || 0) as Service["gst_percent"],
+      status: service.is_active ? "Active" : "Inactive",
+      notes: service.notes || "",
+      createdAt: service.created_at ? service.created_at.substring(0, 10) : "",
+      updatedAt: service.updated_at || undefined,
+    }));
+
+    setServices(mappedServices);
+
+    console.log("Services loaded from Supabase:", mappedServices);
   };
-
-  useEffect(() => {
-    loadServices();
-
-    window.addEventListener("focus", loadServices);
-
-    return () => {
-      window.removeEventListener("focus", loadServices);
-    };
-  }, []);
 
   /* --------------------------------
      Search + Filter
@@ -141,8 +83,8 @@ export default function Services() {
   -------------------------------- */
 
   useEffect(() => {
-    setCurrentPage(1);
-  }, [search, categoryFilter, statusFilter]);
+    loadServices();
+  }, []);
 
   /* --------------------------------
      Pagination

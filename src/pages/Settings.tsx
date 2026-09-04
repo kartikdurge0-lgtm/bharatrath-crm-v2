@@ -1,12 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   getActiveSalesPersons,
   addSalesPerson,
   updateSalesPerson,
   deactivateSalesPerson,
-  deleteSalesPerson,
-  generateSalesPersonId,
   type SalesPerson,
   type SalesPersonType,
 } from "../data/salesPersonStore";
@@ -162,9 +160,7 @@ export default function Settings() {
     loadSetting(PREFERENCE_KEY, defaultPreferences),
   );
 
-  const [salesPersons, setSalesPersons] = useState<SalesPerson[]>(() =>
-    getActiveSalesPersons(),
-  );
+  const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
 
   const [newPaymentMode, setNewPaymentMode] = useState("");
 
@@ -185,6 +181,28 @@ export default function Settings() {
 
   const [message, setMessage] = useState("");
 
+  /* --------------------------------
+     Load active sales persons
+  -------------------------------- */
+
+  const refreshSalesPersons = async () => {
+    try {
+      const persons = await getActiveSalesPersons();
+      setSalesPersons(persons);
+    } catch (error) {
+      console.error("Failed to load sales persons:", error);
+      setSalesPersons([]);
+    }
+  };
+
+  useEffect(() => {
+    refreshSalesPersons();
+  }, []);
+
+  /* --------------------------------
+     Messages
+  -------------------------------- */
+
   const showSaved = (text = "Settings saved successfully.") => {
     setMessage(text);
 
@@ -192,6 +210,10 @@ export default function Settings() {
       setMessage("");
     }, 2500);
   };
+
+  /* --------------------------------
+     Settings save
+  -------------------------------- */
 
   const saveBusiness = () => {
     saveSetting(BUSINESS_KEY, business);
@@ -223,9 +245,9 @@ export default function Settings() {
     showSaved();
   };
 
-  const refreshSalesPersons = () => {
-    setSalesPersons(getActiveSalesPersons());
-  };
+  /* --------------------------------
+     Sales Person form
+  -------------------------------- */
 
   const resetSalesPersonForm = () => {
     setSalesPersonForm({
@@ -269,7 +291,7 @@ export default function Settings() {
     setShowSalesPersonForm(true);
   };
 
-  const saveSalesPerson = () => {
+  const saveSalesPerson = async () => {
     const name = salesPersonForm.name.trim();
 
     if (!name) {
@@ -287,64 +309,65 @@ export default function Settings() {
       return;
     }
 
-    if (editingSalesPersonId) {
-      updateSalesPerson(editingSalesPersonId, {
+    try {
+      if (editingSalesPersonId) {
+        await updateSalesPerson(editingSalesPersonId, {
+          name,
+          mobile: salesPersonForm.mobile.trim(),
+          email: salesPersonForm.email.trim(),
+          type: salesPersonForm.type,
+          commissionPercent: commission,
+          notes: salesPersonForm.notes.trim(),
+        });
+
+        await refreshSalesPersons();
+
+        resetSalesPersonForm();
+        showSaved("Sales Person updated successfully.");
+        return;
+      }
+
+      await addSalesPerson({
         name,
         mobile: salesPersonForm.mobile.trim(),
         email: salesPersonForm.email.trim(),
         type: salesPersonForm.type,
         commissionPercent: commission,
+        status: "Active",
         notes: salesPersonForm.notes.trim(),
       });
 
-      refreshSalesPersons();
+      await refreshSalesPersons();
+
       resetSalesPersonForm();
-      showSaved("Sales Person updated successfully.");
-      return;
+      showSaved("Sales Person added successfully.");
+    } catch (error) {
+      console.error("Failed to save sales person:", error);
+      setMessage("Failed to save Sales Person. Please try again.");
     }
-
-    addSalesPerson({
-      id: generateSalesPersonId(),
-      name,
-      mobile: salesPersonForm.mobile.trim(),
-      email: salesPersonForm.email.trim(),
-      type: salesPersonForm.type,
-      commissionPercent: commission,
-      status: "Active",
-      notes: salesPersonForm.notes.trim(),
-      createdAt: new Date().toISOString(),
-    });
-
-    refreshSalesPersons();
-    resetSalesPersonForm();
-    showSaved("Sales Person added successfully.");
   };
 
-  const handleDeactivate = (person: SalesPerson) => {
+  const handleDeactivate = async (person: SalesPerson) => {
     const confirmed = window.confirm(
       `Deactivate ${person.name}? They will no longer appear in new Lead / Quotation selections.`,
     );
 
     if (!confirmed) return;
 
-    deactivateSalesPerson(person.id);
-    refreshSalesPersons();
+    try {
+      await deactivateSalesPerson(person.id);
+      await refreshSalesPersons();
 
-    showSaved("Sales Person deactivated.");
+      showSaved("Sales Person deactivated.");
+    } catch (error) {
+      console.error("Failed to deactivate sales person:", error);
+      setMessage("Failed to deactivate Sales Person. Please try again.");
+    }
   };
 
-  const handleDelete = (person: SalesPerson) => {
-    const confirmed = window.confirm(
-      `Delete ${person.name}? This should only be used if the person was added by mistake.`,
-    );
-
-    if (!confirmed) return;
-
-    deleteSalesPerson(person.id);
-    refreshSalesPersons();
-
-    showSaved("Sales Person deleted.");
-  };
+  /* --------------------------------
+     Payment modes
+  -------------------------------- */
 
   const addPaymentMode = () => {
     const mode = newPaymentMode.trim();
@@ -850,14 +873,6 @@ export default function Settings() {
                                   className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50"
                                 >
                                   Deactivate
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleDelete(person)}
-                                  className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
-                                >
-                                  Delete
                                 </button>
                               </div>
                             </td>

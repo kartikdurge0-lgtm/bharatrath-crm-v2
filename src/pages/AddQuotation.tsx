@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
@@ -135,13 +135,39 @@ export default function AddQuotation() {
 
   const services = useMemo<Service[]>(() => getServices(), []);
 
-  const salesPersons = useMemo<SalesPerson[]>(
-    () =>
-      getActiveSalesPersons().filter(
-        (person) => person.type === "Staff" || person.type === "Part-time",
-      ),
-    [],
-  );
+  const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSalesPersons() {
+      try {
+        const persons = await getActiveSalesPersons();
+
+        if (!mounted) {
+          return;
+        }
+
+        setSalesPersons(
+          persons.filter(
+            (person) => person.type === "Staff" || person.type === "Part-time",
+          ),
+        );
+      } catch (error) {
+        console.error("Failed to load sales persons:", error);
+
+        if (mounted) {
+          setSalesPersons([]);
+        }
+      }
+    }
+
+    loadSalesPersons();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   /* -------------------------------------------------------
      URL Prefill
@@ -636,13 +662,9 @@ export default function AddQuotation() {
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm"
               >
                 <option value="Draft">Draft</option>
-
                 <option value="Sent">Sent</option>
-
                 <option value="Accepted">Accepted</option>
-
                 <option value="Rejected">Rejected</option>
-
                 <option value="Expired">Expired</option>
               </select>
             </div>
@@ -709,21 +731,13 @@ export default function AddQuotation() {
               <thead>
                 <tr className="bg-green-600 text-white">
                   <th className="px-3 py-3 text-center text-sm">#</th>
-
                   <th className="px-3 py-3 text-left text-sm">Service</th>
-
                   <th className="px-3 py-3 text-left text-sm">Description</th>
-
                   <th className="px-3 py-3 text-left text-sm">SAC</th>
-
                   <th className="px-3 py-3 text-right text-sm">Basic Cost</th>
-
                   <th className="px-3 py-3 text-right text-sm">Discount</th>
-
                   <th className="px-3 py-3 text-right text-sm">Final Cost</th>
-
                   <th className="px-3 py-3 text-left text-sm">Frequency</th>
-
                   <th className="px-3 py-3 text-center text-sm">Action</th>
                 </tr>
               </thead>
@@ -731,13 +745,9 @@ export default function AddQuotation() {
               <tbody>
                 {items.map((item, index) => (
                   <tr key={index} className="border-b border-gray-100">
-                    {/* NUMBER */}
-
                     <td className="px-3 py-4 text-center text-sm">
                       {index + 1}
                     </td>
-
-                    {/* SERVICE */}
 
                     <td className="px-3 py-4">
                       <select
@@ -760,8 +770,6 @@ export default function AddQuotation() {
                       </select>
                     </td>
 
-                    {/* DESCRIPTION */}
-
                     <td className="px-3 py-4">
                       <input
                         type="text"
@@ -774,8 +782,6 @@ export default function AddQuotation() {
                       />
                     </td>
 
-                    {/* SAC */}
-
                     <td className="px-3 py-4">
                       <input
                         type="text"
@@ -785,8 +791,6 @@ export default function AddQuotation() {
                       />
                     </td>
 
-                    {/* BASIC COST */}
-
                     <td className="px-3 py-4">
                       <input
                         type="number"
@@ -795,8 +799,6 @@ export default function AddQuotation() {
                         className="w-[120px] rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-right text-sm"
                       />
                     </td>
-
-                    {/* DISCOUNT */}
 
                     <td className="px-3 py-4">
                       <input
@@ -812,8 +814,6 @@ export default function AddQuotation() {
                       />
                     </td>
 
-                    {/* FINAL COST */}
-
                     <td className="px-3 py-4">
                       <input
                         type="number"
@@ -823,8 +823,6 @@ export default function AddQuotation() {
                       />
                     </td>
 
-                    {/* FREQUENCY */}
-
                     <td className="px-3 py-4">
                       <input
                         type="text"
@@ -833,8 +831,6 @@ export default function AddQuotation() {
                         className="w-[110px] rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm"
                       />
                     </td>
-
-                    {/* ACTION */}
 
                     <td className="px-3 py-4 text-center">
                       <button
@@ -852,15 +848,12 @@ export default function AddQuotation() {
             </table>
           </div>
 
-          {/* =================================================
-              TOTALS
-          ================================================= */}
+          {/* TOTALS */}
 
           <div className="flex justify-end border-t border-gray-100 p-6">
             <div className="w-full max-w-sm">
               <div className="flex justify-between border-b py-3 text-sm">
                 <span>Subtotal</span>
-
                 <span className="font-medium">{currency(totals.subtotal)}</span>
               </div>
 
@@ -887,7 +880,6 @@ export default function AddQuotation() {
 
               <div className="flex justify-between py-4 text-lg font-bold text-gray-900">
                 <span>Grand Total</span>
-
                 <span>{currency(totals.grandTotal)}</span>
               </div>
             </div>
@@ -919,8 +911,6 @@ export default function AddQuotation() {
 
           {showMoreDetails && (
             <div className="space-y-6 border-t border-gray-100 p-6">
-              {/* SCOPE */}
-
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
                   Scope of Work
@@ -934,8 +924,6 @@ export default function AddQuotation() {
                   className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
                 />
               </div>
-
-              {/* IMPLEMENTATION */}
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -953,8 +941,6 @@ export default function AddQuotation() {
                 />
               </div>
 
-              {/* SUPPORT */}
-
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
                   Post Sales Support & Training
@@ -969,8 +955,6 @@ export default function AddQuotation() {
                 />
               </div>
 
-              {/* REMARKS */}
-
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
                   Remarks
@@ -984,8 +968,6 @@ export default function AddQuotation() {
                   className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
                 />
               </div>
-
-              {/* TERMS */}
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">

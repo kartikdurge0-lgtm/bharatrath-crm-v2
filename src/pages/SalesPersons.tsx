@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   activateSalesPerson,
@@ -10,16 +10,20 @@ import {
 export default function SalesPersons() {
   const navigate = useNavigate();
 
-  const [salesPersons, setSalesPersons] =
-    useState<SalesPerson[]>(getSalesPersons());
+  const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
 
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
 
-  const refresh = () => {
-    setSalesPersons(getSalesPersons());
+  const refresh = async () => {
+    const data = await getSalesPersons();
+    setSalesPersons(data);
   };
+
+  useEffect(() => {
+    refresh();
+  }, []);
 
   const filteredSalesPersons = useMemo(() => {
     const searchText = search.trim().toLowerCase();
@@ -49,14 +53,14 @@ export default function SalesPersons() {
     (person) => person.status === "Inactive",
   ).length;
 
-  const handleToggleStatus = (person: SalesPerson) => {
+  const handleToggleStatus = async (person: SalesPerson) => {
     if (person.status === "Active") {
-      deactivateSalesPerson(person.id);
+      await deactivateSalesPerson(person.id);
     } else {
-      activateSalesPerson(person.id);
+      await activateSalesPerson(person.id);
     }
 
-    refresh();
+    await refresh();
   };
 
   return (

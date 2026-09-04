@@ -1,21 +1,42 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import {
-  getService,
-  updateService,
-  type BillingType,
-  type GSTPercent,
-  type Service,
-  type ServiceCategory,
-} from "../data/serviceStore";
+import { supabase } from "../lib/supabase";
+
+type ServiceStatus = "Active" | "Inactive";
+
+type ServiceCategory =
+  | "Website"
+  | "App"
+  | "Digital Marketing"
+  | "Domain & Hosting"
+  | "AMC"
+  | "Software"
+  | "Other";
+
+type BillingType = "One Time" | "Monthly" | "Yearly" | "As Required";
+
+type Service = {
+  id: number;
+  name: string;
+  category: ServiceCategory | null;
+  description: string | null;
+  default_price: number | null;
+  billing_type: BillingType;
+  sac_code: string | null;
+  gst_percent: number | null;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 export default function EditService() {
   const navigate = useNavigate();
-  const { serviceId } = useParams();
+  const { serviceId } = useParams<{ serviceId: string }>();
 
   const [service, setService] = useState<Service | null>(null);
-
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const [form, setForm] = useState({
     service_name: "",
@@ -25,52 +46,109 @@ export default function EditService() {
     billing_type: "One Time" as BillingType,
     sac_code: "",
     gst_percent: "18",
-    status: "Active" as Service["status"],
+    status: "Active" as ServiceStatus,
     notes: "",
   });
 
-  /* --------------------------------
-     Load Service
-  -------------------------------- */
+  /* =====================================================
+     CONVERT SRV-001 → DATABASE ID 1
+  ===================================================== */
 
-  useEffect(() => {
-    if (!serviceId) {
+  const getDatabaseId = (value: string | undefined): number | null => {
+    if (!value) {
+      return null;
+    }
+
+    const match = value.match(/^SRV-(\d+)$/i);
+
+    if (!match) {
+      return null;
+    }
+
+    const id = Number(match[1]);
+
+    return Number.isFinite(id) ? id : null;
+  };
+
+  /* =====================================================
+     LOAD SERVICE
+  ===================================================== */
+
+  const loadService = useCallback(async () => {
+    const databaseId = getDatabaseId(serviceId);
+
+    if (!databaseId) {
+      setService(null);
       setLoading(false);
       return;
     }
 
-    const existingService = getService(serviceId);
+    setLoading(true);
 
-    if (existingService) {
-      setService(existingService);
+    const { data, error } = await supabase
+      .from("services")
+      .select("*")
+      .eq("id", databaseId)
+      .maybeSingle();
 
-      setForm({
-        service_name: existingService.service_name,
-
-        category: existingService.category,
-
-        description: existingService.description,
-
-        default_price: String(existingService.default_price),
-
-        billing_type: existingService.billing_type,
-
-        sac_code: existingService.sac_code,
-
-        gst_percent: String(existingService.gst_percent),
-
-        status: existingService.status,
-
-        notes: existingService.notes,
-      });
+    if (error) {
+      console.error("Service load error:", error);
+      window.alert(error.message);
+      setService(null);
+      setLoading(false);
+      return;
     }
+
+    if (!data) {
+      setService(null);
+      setLoading(false);
+      return;
+    }
+
+    const loadedService = data as Service;
+
+    setService(loadedService);
+
+    setForm({
+      service_name: loadedService.name || "",
+
+      category: loadedService.category || "",
+
+      description: loadedService.description || "",
+
+      default_price:
+        loadedService.default_price !== null
+          ? String(loadedService.default_price)
+          : "",
+
+      billing_type: loadedService.billing_type || "One Time",
+
+      sac_code: loadedService.sac_code || "",
+
+      gst_percent:
+        loadedService.gst_percent !== null
+          ? String(loadedService.gst_percent)
+          : "18",
+
+      status: loadedService.is_active ? "Active" : "Inactive",
+
+      notes: loadedService.notes || "",
+    });
 
     setLoading(false);
   }, [serviceId]);
 
-  /* --------------------------------
-     Update field
-  -------------------------------- */
+  /* =====================================================
+     INITIAL LOAD
+  ===================================================== */
+
+  useEffect(() => {
+    loadService();
+  }, [loadService]);
+
+  /* =====================================================
+     UPDATE FORM FIELD
+  ===================================================== */
 
   const updateField = (field: keyof typeof form, value: string) => {
     setForm((current) => ({
@@ -79,32 +157,32 @@ export default function EditService() {
     }));
   };
 
-  /* --------------------------------
-     Save Changes
-  -------------------------------- */
+  /* =====================================================
+     SAVE CHANGES
+  ===================================================== */
 
-  const handleSubmit = () => {
-    if (!serviceId) {
+  async function handleSubmit() {
+    if (!service) {
       return;
     }
 
-    /* Service Name */
+    /* SERVICE NAME */
 
     if (!form.service_name.trim()) {
       window.alert("Please enter the service name.");
       return;
     }
 
-    /* Category */
+    /* CATEGORY */
 
     if (!form.category) {
       window.alert("Please select a category.");
       return;
     }
 
-    /* Price */
+    /* PRICE */
 
-    if (!form.default_price) {
+    if (!form.default_price.trim()) {
       window.alert("Please enter the default price.");
       return;
     }
@@ -118,62 +196,88 @@ export default function EditService() {
 
     /* GST */
 
-    const gst = Number(form.gst_percent) as GSTPercent;
+    const gst = Number(form.gst_percent);
 
     if (![0, 5, 12, 18, 28].includes(gst)) {
       window.alert("Please select a valid GST percentage.");
       return;
     }
 
-    /* Update */
+    setSaving(true);
 
-    const updatedService = updateService(serviceId, {
-      service_name: form.service_name.trim(),
+    /* =====================================================
+       UPDATE SUPABASE
 
-      category: form.category,
+       IMPORTANT:
+       Database column = name
+       Form field = service_name
+    ===================================================== */
 
-      description: form.description.trim(),
+    const { data, error } = await supabase
+      .from("services")
+      .update({
+        name: form.service_name.trim(),
 
-      default_price: price,
+        category: form.category,
 
-      billing_type: form.billing_type,
+        description: form.description.trim() || null,
 
-      sac_code: form.sac_code.trim(),
+        default_price: price,
 
-      gst_percent: gst,
+        billing_type: form.billing_type,
 
-      status: form.status,
+        sac_code: form.sac_code.trim() || null,
 
-      notes: form.notes.trim(),
-    });
+        gst_percent: gst,
 
-    if (!updatedService) {
+        is_active: form.status === "Active",
+
+        notes: form.notes.trim() || null,
+
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", service.id)
+      .select("*")
+      .single();
+
+    setSaving(false);
+
+    if (error) {
+      console.error("Service update error:", error);
+
+      window.alert(error.message);
+      return;
+    }
+
+    if (!data) {
       window.alert("Service could not be updated.");
       return;
     }
 
-    setService(updatedService);
+    setService(data as Service);
 
     window.alert("Service updated successfully.");
 
-    navigate(`/services/${updatedService.id}`);
-  };
+    navigate(`/services/SRV-${String(service.id).padStart(3, "0")}`);
+  }
 
-  /* --------------------------------
-     Loading
-  -------------------------------- */
+  /* =====================================================
+     LOADING
+  ===================================================== */
 
   if (loading) {
     return (
       <div className="rounded-xl border border-gray-200 bg-white p-10 text-center shadow-sm">
+        <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-gray-200 border-t-green-600" />
+
         <p className="text-sm text-gray-500">Loading service...</p>
       </div>
     );
   }
 
-  /* --------------------------------
-     Not Found
-  -------------------------------- */
+  /* =====================================================
+     NOT FOUND
+  ===================================================== */
 
   if (!service) {
     return (
@@ -199,34 +303,38 @@ export default function EditService() {
     );
   }
 
+  const displayServiceId = `SRV-${String(service.id).padStart(3, "0")}`;
+
   return (
     <div className="space-y-6">
-      {/* --------------------------------
-          Page Header
-      -------------------------------- */}
+      {/* =====================================================
+          PAGE HEADER
+      ===================================================== */}
 
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Edit Service</h2>
 
-          <p className="mt-1 text-sm text-gray-500">Service ID: {service.id}</p>
+          <p className="mt-1 text-sm text-gray-500">
+            Service ID: {displayServiceId}
+          </p>
         </div>
 
         <button
           type="button"
-          onClick={() => navigate(`/services/${service.id}`)}
+          onClick={() => navigate(`/services/${displayServiceId}`)}
           className="rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
         >
           ← Back
         </button>
       </div>
 
-      {/* --------------------------------
-          Form Card
-      -------------------------------- */}
+      {/* =====================================================
+          FORM CARD
+      ===================================================== */}
 
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-        {/* Header */}
+        {/* HEADER */}
 
         <div className="border-b border-gray-200 px-6 py-5">
           <h3 className="text-lg font-semibold text-gray-900">
@@ -238,10 +346,10 @@ export default function EditService() {
           </p>
         </div>
 
-        {/* Form */}
+        {/* FORM */}
 
         <div className="grid grid-cols-1 gap-5 p-6 md:grid-cols-2">
-          {/* Service Name */}
+          {/* SERVICE NAME */}
 
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -257,7 +365,7 @@ export default function EditService() {
             />
           </div>
 
-          {/* Category */}
+          {/* CATEGORY */}
 
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -287,7 +395,7 @@ export default function EditService() {
             </select>
           </div>
 
-          {/* Default Price */}
+          {/* DEFAULT PRICE */}
 
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -310,7 +418,7 @@ export default function EditService() {
             </div>
           </div>
 
-          {/* Billing Type */}
+          {/* BILLING TYPE */}
 
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -332,7 +440,7 @@ export default function EditService() {
             </select>
           </div>
 
-          {/* SAC Code */}
+          {/* SAC CODE */}
 
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -361,18 +469,14 @@ export default function EditService() {
               className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100"
             >
               <option value="0">0%</option>
-
               <option value="5">5%</option>
-
               <option value="12">12%</option>
-
               <option value="18">18%</option>
-
               <option value="28">28%</option>
             </select>
           </div>
 
-          {/* Description */}
+          {/* DESCRIPTION */}
 
           <div className="md:col-span-2">
             <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -388,7 +492,7 @@ export default function EditService() {
             />
           </div>
 
-          {/* Status */}
+          {/* STATUS */}
 
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -406,7 +510,7 @@ export default function EditService() {
             </select>
           </div>
 
-          {/* Notes */}
+          {/* NOTES */}
 
           <div className="md:col-span-2">
             <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -423,15 +527,16 @@ export default function EditService() {
           </div>
         </div>
 
-        {/* --------------------------------
-            Footer
-        -------------------------------- */}
+        {/* =====================================================
+            FOOTER
+        ===================================================== */}
 
         <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
           <button
             type="button"
-            onClick={() => navigate(`/services/${service.id}`)}
-            className="rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            onClick={() => navigate(`/services/${displayServiceId}`)}
+            disabled={saving}
+            className="rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -439,9 +544,10 @@ export default function EditService() {
           <button
             type="button"
             onClick={handleSubmit}
-            className="rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+            disabled={saving}
+            className="rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Save Changes
+            {saving ? "Saving..." : "Save Changes"}
           </button>
         </div>
       </div>

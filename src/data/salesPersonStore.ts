@@ -61,6 +61,10 @@ function getDatabaseId(displayId: string): number | null {
   return Number.isFinite(id) ? id : null;
 }
 
+function normalize(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
 /* =====================================================
    GET ALL
 ===================================================== */
@@ -73,7 +77,7 @@ export async function getSalesPersons(): Promise<SalesPerson[]> {
 
   if (error) {
     console.error("Supabase sales persons error:", error);
-    return [];
+    throw error;
   }
 
   return (data as SalesPersonRow[]).map(mapSalesPerson);
@@ -100,7 +104,7 @@ export async function getSalesPerson(
 
   if (error) {
     console.error("Supabase sales person error:", error);
-    return null;
+    throw error;
   }
 
   if (!data) {
@@ -111,29 +115,98 @@ export async function getSalesPerson(
 }
 
 /* =====================================================
+   DUPLICATE CHECK
+===================================================== */
+
+async function checkDuplicateSalesPerson({
+  name,
+  email,
+  mobile,
+  excludeDisplayId,
+}: {
+  name: string;
+  email?: string;
+  mobile?: string;
+  excludeDisplayId?: string;
+}) {
+  const { data, error } = await supabase
+    .from("sales_persons")
+    .select("*")
+    .order("id", { ascending: true });
+
+  if (error) {
+    console.error("Sales person duplicate check error:", error);
+    throw error;
+  }
+
+  const excludeId = excludeDisplayId ? getDatabaseId(excludeDisplayId) : null;
+
+  const normalizedName = normalize(name);
+  const normalizedEmail = normalize(email);
+  const normalizedMobile = normalize(mobile);
+
+  const duplicate = (data as SalesPersonRow[]).find((row) => {
+    if (excludeId !== null && row.id === excludeId) {
+      return false;
+    }
+
+    const sameName =
+      normalizedName !== "" && normalize(row.name) === normalizedName;
+
+    const sameEmail =
+      normalizedEmail !== "" && normalize(row.email) === normalizedEmail;
+
+    const sameMobile =
+      normalizedMobile !== "" && normalize(row.mobile) === normalizedMobile;
+
+    return sameName || sameEmail || sameMobile;
+  });
+
+  return duplicate ? mapSalesPerson(duplicate) : null;
+}
+
+/* =====================================================
    ADD
 ===================================================== */
 
 export async function addSalesPerson(
   salesPerson: Omit<SalesPerson, "id" | "createdAt" | "updatedAt">,
-): Promise<SalesPerson | null> {
+): Promise<SalesPerson> {
+  const duplicate = await checkDuplicateSalesPerson({
+    name: salesPerson.name,
+    email: salesPerson.email,
+    mobile: salesPerson.mobile,
+  });
+
+  if (duplicate) {
+    if (duplicate.status === "Inactive") {
+      throw new Error(
+        `A Sales Person with this name, email or mobile already exists but is inactive (${duplicate.id}). Please activate the existing record instead of creating a duplicate.`,
+      );
+    }
+
+    throw new Error(
+      `A Sales Person with this name, email or mobile already exists (${duplicate.id}).`,
+    );
+  }
+
   const { data, error } = await supabase
     .from("sales_persons")
     .insert({
-      name: salesPerson.name,
-      mobile: salesPerson.mobile || null,
-      email: salesPerson.email || null,
+      name: salesPerson.name.trim(),
+      mobile: salesPerson.mobile?.trim() || null,
+      email: salesPerson.email?.trim() || null,
       type: salesPerson.type,
       commission_percent: salesPerson.commissionPercent,
       is_active: salesPerson.status === "Active",
-      notes: salesPerson.notes || null,
+      notes: salesPerson.notes?.trim() || null,
     })
     .select("*")
     .single();
 
   if (error) {
     console.error("Add sales person error:", error);
-    return null;
+    throw error;
   }
 
   return mapSalesPerson(data as SalesPersonRow);
@@ -146,27 +219,96 @@ export async function addSalesPerson(
 export async function updateSalesPerson(
   displayId: string,
   updates: Partial<SalesPerson>,
-): Promise<SalesPerson | null> {
+): Promise<SalesPerson> {
   const databaseId = getDatabaseId(displayId);
 
   if (databaseId === null) {
-    return null;
+    throw new Error("Invalid Sales Person ID.");
   }
+
+  // -----------------------------------------------------
+  // Load current record first
+  // -----------------------------------------------------
+
+  const { data: currentData, error: currentError } = await supabase
+    .from("sales_persons")
+    .select("*")
+    .eq("id", databaseId)
+    .maybeSingle();
+
+  if (currentError) {
+    console.error("Load sales person before update error:", currentError);
+    throw currentError;
+  }
+
+  if (!currentData) {
+    throw new Error("Sales Person record not found.");
+  }
+
+  const current = currentData as SalesPersonRow;
+
+  // -----------------------------------------------------
+  // Build the final values that the record will have
+  // -----------------------------------------------------
+
+  const finalName =
+    updates.name !== undefined ? updates.name.trim() : current.name;
+
+  const finalEmail =
+    updates.email !== undefined ? updates.email.trim() : (current.email ?? "");
+
+  const finalMobile =
+    updates.mobile !== undefined
+      ? updates.mobile.trim()
+      : (current.mobile ?? "");
+
+  // -----------------------------------------------------
+  // Duplicate check
+  //
+  // Only block if the identity information is actually
+  // being changed to something already used by another
+  // record.
+  // -----------------------------------------------------
+
+  const nameChanged = normalize(finalName) !== normalize(current.name);
+
+  const emailChanged = normalize(finalEmail) !== normalize(current.email);
+
+  const mobileChanged = normalize(finalMobile) !== normalize(current.mobile);
+
+  if (nameChanged || emailChanged || mobileChanged) {
+    const duplicate = await checkDuplicateSalesPerson({
+      name: finalName,
+      email: finalEmail,
+      mobile: finalMobile,
+      excludeDisplayId: displayId,
+    });
+
+    if (duplicate) {
+      throw new Error(
+        `Another Sales Person already uses this name, email or mobile (${duplicate.id}).`,
+      );
+    }
+  }
+
+  // -----------------------------------------------------
+  // Prepare database update
+  // -----------------------------------------------------
 
   const databaseUpdates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
 
   if (updates.name !== undefined) {
-    databaseUpdates.name = updates.name;
+    databaseUpdates.name = finalName;
   }
 
   if (updates.mobile !== undefined) {
-    databaseUpdates.mobile = updates.mobile || null;
+    databaseUpdates.mobile = finalMobile || null;
   }
 
   if (updates.email !== undefined) {
-    databaseUpdates.email = updates.email || null;
+    databaseUpdates.email = finalEmail || null;
   }
 
   if (updates.type !== undefined) {
@@ -182,19 +324,27 @@ export async function updateSalesPerson(
   }
 
   if (updates.notes !== undefined) {
-    databaseUpdates.notes = updates.notes || null;
+    databaseUpdates.notes = updates.notes.trim() || null;
   }
+
+  // -----------------------------------------------------
+  // Update Supabase
+  // -----------------------------------------------------
 
   const { data, error } = await supabase
     .from("sales_persons")
     .update(databaseUpdates)
     .eq("id", databaseId)
     .select("*")
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error("Update sales person error:", error);
-    return null;
+    throw error;
+  }
+
+  if (!data) {
+    throw new Error("Sales Person could not be updated.");
   }
 
   return mapSalesPerson(data as SalesPersonRow);
@@ -206,7 +356,7 @@ export async function updateSalesPerson(
 
 export async function deactivateSalesPerson(
   displayId: string,
-): Promise<SalesPerson | null> {
+): Promise<SalesPerson> {
   return updateSalesPerson(displayId, {
     status: "Inactive",
   });
@@ -214,7 +364,7 @@ export async function deactivateSalesPerson(
 
 export async function activateSalesPerson(
   displayId: string,
-): Promise<SalesPerson | null> {
+): Promise<SalesPerson> {
   return updateSalesPerson(displayId, {
     status: "Active",
   });
@@ -233,7 +383,7 @@ export async function getActiveSalesPersons(): Promise<SalesPerson[]> {
 
   if (error) {
     console.error("Supabase active sales persons error:", error);
-    return [];
+    throw error;
   }
 
   return (data as SalesPersonRow[]).map(mapSalesPerson);
@@ -253,7 +403,7 @@ export async function getInternalTeamMembers(): Promise<SalesPerson[]> {
 
   if (error) {
     console.error("Supabase internal team members error:", error);
-    return [];
+    throw error;
   }
 
   return (data as SalesPersonRow[]).map(mapSalesPerson);

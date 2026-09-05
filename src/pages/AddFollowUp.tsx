@@ -43,7 +43,10 @@ export default function AddFollowUp() {
     Awaited<ReturnType<typeof getActiveSalesPersons>>
   >([]);
 
-  const leads = getLeads();
+  // Supabase data
+  const [leads, setLeads] = useState<Awaited<ReturnType<typeof getLeads>>>([]);
+
+  // Existing local stores
   const clients = getClients();
   const quotations = getQuotations();
   const renewals = getRenewals();
@@ -85,13 +88,46 @@ export default function AddFollowUp() {
   const [error, setError] = useState("");
 
   /*
+   * Load leads from Supabase.
+   */
+  useEffect(() => {
+    let mounted = true;
+
+    const loadLeads = async () => {
+      try {
+        const data = await getLeads();
+
+        if (mounted) {
+          setLeads(data);
+        }
+      } catch (error) {
+        console.error("Failed to load leads:", error);
+
+        if (mounted) {
+          setError("Failed to load leads.");
+        }
+      }
+    };
+
+    loadLeads();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  /*
    * Load active internal Bharatrath team members.
    * External Sales Persons are excluded.
    */
   useEffect(() => {
+    let mounted = true;
+
     const loadTeamMembers = async () => {
       try {
         const persons = await getActiveSalesPersons();
+
+        if (!mounted) return;
 
         setTeamMembers(
           persons.filter(
@@ -100,11 +136,18 @@ export default function AddFollowUp() {
         );
       } catch (error) {
         console.error("Failed to load team members:", error);
-        setError("Failed to load team members.");
+
+        if (mounted) {
+          setError("Failed to load team members.");
+        }
       }
     };
 
     loadTeamMembers();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   /*
@@ -237,7 +280,7 @@ export default function AddFollowUp() {
     }));
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
 
@@ -270,70 +313,75 @@ export default function AddFollowUp() {
       return;
     }
 
-    const now = new Date().toISOString();
+    try {
+      const now = new Date().toISOString();
 
-    addFollowUp({
-      id: generateFollowUpId(),
+      // Generate Supabase-compatible follow-up ID
+      const followUpId = await generateFollowUpId();
 
-      relatedType: form.relatedType,
+      await addFollowUp({
+        id: followUpId,
 
-      relatedId: form.relatedId,
+        relatedType: form.relatedType,
 
-      relatedName: selectedRecord.name,
+        relatedId: form.relatedId,
 
-      /*
-       * Compatibility fields for existing
-       * FollowUp structure.
-       */
-      clientId: form.relatedType === "Client" ? form.relatedId : "",
+        relatedName: selectedRecord.name,
 
-      clientName: form.relatedType === "Client" ? selectedRecord.name : "",
+        // Compatibility fields
+        clientId: form.relatedType === "Client" ? form.relatedId : "",
 
-      contactPerson: form.contactPerson.trim(),
+        clientName: form.relatedType === "Client" ? selectedRecord.name : "",
 
-      phone: form.phone.trim(),
+        contactPerson: form.contactPerson.trim(),
 
-      purpose: form.purpose.trim(),
+        phone: form.phone.trim(),
 
-      followUpType: form.followUpType,
+        purpose: form.purpose.trim(),
 
-      followUpDate: form.followUpDate,
+        followUpType: form.followUpType,
 
-      followUpTime: form.followUpTime,
+        followUpDate: form.followUpDate,
 
-      priority: form.priority,
+        followUpTime: form.followUpTime,
 
-      assignedTo: form.assignedTo,
+        priority: form.priority,
 
-      reminder: form.reminder,
+        assignedTo: form.assignedTo,
 
-      nextFollowUpDate: form.nextFollowUpDate,
+        reminder: form.reminder,
 
-      nextFollowUpTime: form.nextFollowUpTime,
+        nextFollowUpDate: form.nextFollowUpDate,
 
-      nextAction: form.nextAction.trim(),
+        nextFollowUpTime: form.nextFollowUpTime,
 
-      notes: form.notes.trim(),
+        nextAction: form.nextAction.trim(),
 
-      clientResponse: form.clientResponse.trim(),
+        notes: form.notes.trim(),
 
-      internalNotes: form.internalNotes.trim(),
+        clientResponse: form.clientResponse.trim(),
 
-      status: "Pending",
+        internalNotes: form.internalNotes.trim(),
 
-      createdAt: now,
-    });
+        status: "Pending",
 
-    /*
-     * If follow-up was created from a Lead,
-     * return to that Lead.
-     *
-     * Otherwise return to universal Follow-ups.
-     */
-    if (form.relatedType === "Lead" && form.relatedId) {
-      navigate(`/leads/${form.relatedId}`);
-    } else {
-      navigate("/follow-ups");
+        createdAt: now,
+      });
+
+      // If created from Lead Details, return to that Lead
+      if (form.relatedType === "Lead" && form.relatedId) {
+        navigate(`/leads/${form.relatedId}`);
+      } else {
+        navigate("/follow-ups");
+      }
+    } catch (error) {
+      console.error("Failed to save follow-up:", error);
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Failed to save follow-up. Please try again.",
+      );
     }
   }
 

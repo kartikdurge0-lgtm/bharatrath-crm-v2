@@ -4,6 +4,8 @@
    React + TypeScript
 ========================================================= */
 
+import { createActivityLog } from "./activityLogStore";
+
 /* =========================================================
    TYPES
 ========================================================= */
@@ -99,10 +101,6 @@ export interface Invoice {
 
   quotationNumber?: string;
 
-  /*
-   * Renewal reference
-   * Used when invoice is generated from a renewal.
-   */
   renewalId?: string;
 
   renewalReference?: string;
@@ -123,9 +121,6 @@ export interface Invoice {
 
   grandTotal: number;
 
-  /*
-   * Compatibility with existing EditInvoice code.
-   */
   amount: number;
 
   notes?: string;
@@ -162,9 +157,6 @@ export interface CreateInvoiceInput {
 
   quotationNumber?: string;
 
-  /*
-   * Renewal reference
-   */
   renewalId?: string;
 
   renewalReference?: string;
@@ -316,8 +308,6 @@ export function generateInvoiceId(): string {
 
 /* =========================================================
    GENERATE INVOICE NUMBER
-   Example:
-   INV/08/2026/001
 ========================================================= */
 
 export function generateInvoiceNumber(): string {
@@ -458,9 +448,6 @@ export function createInvoice(input: CreateInvoiceInput): Invoice {
 
     quotationNumber: input.quotationNumber || undefined,
 
-    /*
-     * Renewal reference
-     */
     renewalId: input.renewalId || undefined,
 
     renewalReference: input.renewalReference || undefined,
@@ -533,6 +520,13 @@ export function updateInvoice(
 
   const existing = invoices[index];
 
+  /*
+   * Cancelled invoices are retained permanently.
+   */
+  if (existing.status === "Cancelled" && updates.status !== "Cancelled") {
+    return existing;
+  }
+
   const updated: Invoice = {
     ...existing,
 
@@ -545,6 +539,10 @@ export function updateInvoice(
     updatedAt: new Date().toISOString(),
   };
 
+  /*
+   * Recalculate financial totals whenever
+   * items or tax changes.
+   */
   if (updates.items !== undefined || updates.tax !== undefined) {
     const sourceItems = updates.items ?? existing.items;
 
@@ -575,19 +573,33 @@ export function updateInvoice(
 }
 
 /* =========================================================
-   DELETE INVOICE
+   DELETE / ARCHIVE INVOICE
 ========================================================= */
 
 export function deleteInvoice(invoiceId: string): boolean {
   const invoices = getInvoices();
 
-  const filtered = invoices.filter((invoice) => invoice.id !== invoiceId);
+  const index = invoices.findIndex((invoice) => invoice.id === invoiceId);
 
-  if (filtered.length === invoices.length) {
+  if (index === -1) {
     return false;
   }
 
-  saveInvoices(filtered);
+  const invoice = invoices[index];
+
+  if (invoice.status === "Cancelled") {
+    return true;
+  }
+
+  invoices[index] = {
+    ...invoice,
+
+    status: "Cancelled",
+
+    updatedAt: new Date().toISOString(),
+  };
+
+  saveInvoices(invoices);
 
   return true;
 }
@@ -622,10 +634,6 @@ export function duplicateInvoice(invoiceId: string): Invoice | undefined {
 
     quotationNumber: invoice.quotationNumber,
 
-    /*
-     * Do not carry renewalId
-     * to duplicated invoice.
-     */
     renewalId: undefined,
 
     renewalReference: undefined,
@@ -665,6 +673,13 @@ export function addInvoicePayment(
 
   const invoice = invoices[index];
 
+  /*
+   * Cancelled invoices cannot receive payments.
+   */
+  if (invoice.status === "Cancelled") {
+    throw new Error("Payment cannot be added to a cancelled invoice.");
+  }
+
   const paymentAmount = roundMoney(Number(input.amountPaid) || 0);
 
   if (paymentAmount <= 0) {
@@ -680,6 +695,10 @@ export function addInvoicePayment(
   );
 
   const balance = roundMoney(invoice.grandTotal - totalPaid);
+
+  if (balance <= 0) {
+    throw new Error("This invoice is already fully paid.");
+  }
 
   if (paymentAmount > balance) {
     throw new Error("Payment cannot be greater than outstanding balance.");
@@ -705,7 +724,7 @@ export function addInvoicePayment(
     status: "Active",
   };
 
-  invoice.payments = [...invoice.payments, payment];
+  invoice.payments = [...payments, payment];
 
   const newTotalPaid = roundMoney(
     invoice.payments
@@ -713,10 +732,18 @@ export function addInvoicePayment(
       .reduce((total, item) => total + Number(item.amountPaid || 0), 0),
   );
 
+  /*
+   * Payment controls financial status.
+   */
   if (newTotalPaid >= invoice.grandTotal) {
     invoice.status = "Paid";
   } else if (newTotalPaid > 0) {
     invoice.status = "Partially Paid";
+  } else {
+    invoice.status =
+      invoice.dueDate && new Date(invoice.dueDate) < new Date()
+        ? "Overdue"
+        : "Sent";
   }
 
   invoice.updatedAt = new Date().toISOString();
@@ -725,12 +752,44 @@ export function addInvoicePayment(
 
   saveInvoices(invoices);
 
+  /*
+   * ACTIVITY HISTORY
+   *
+   * This is intentionally non-blocking.
+   * If activity logging fails, payment is still saved.
+   */
+  void createActivityLog({
+    action: "PAYMENT_ADDED",
+    module: "Payments",
+    record_id: invoice.invoiceNumber,
+    record_name: invoice.clientName,
+    description: `Added payment of ₹${paymentAmount.toLocaleString(
+      "en-IN",
+    )} to invoice ${invoice.invoiceNumber}`,
+    new_data: {
+      paymentId: payment.id,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      clientName: invoice.clientName,
+      amountPaid: paymentAmount,
+      paymentMode: payment.paymentMode,
+      paymentDate: payment.paymentDate,
+      transactionNumber: payment.transactionNumber || "",
+      totalPaid: newTotalPaid,
+      outstandingBalance: Math.max(
+        0,
+        roundMoney(invoice.grandTotal - newTotalPaid),
+      ),
+      invoiceStatus: invoice.status,
+    },
+  });
+
   return invoice;
 }
 
 /* =========================================================
    CANCEL PAYMENT
-   Payment remains in history.
+   Payment remains permanently in history.
 ========================================================= */
 
 export function cancelInvoicePayment(
@@ -763,7 +822,7 @@ export function cancelInvoicePayment(
   }
 
   /*
-   * Payment is NOT deleted.
+   * Payment is NEVER deleted.
    */
   invoice.payments[paymentIndex] = {
     ...payment,
@@ -786,13 +845,20 @@ export function cancelInvoicePayment(
     ),
   );
 
+  /*
+   * Recalculate invoice status
+   * after payment cancellation.
+   */
   if (totalPaid <= 0) {
     if (
       invoice.status === "Paid" ||
       invoice.status === "Partially Paid" ||
       invoice.status === "Overdue"
     ) {
-      invoice.status = "Sent";
+      invoice.status =
+        invoice.dueDate && new Date(invoice.dueDate) < new Date()
+          ? "Overdue"
+          : "Sent";
     }
   } else if (totalPaid >= invoice.grandTotal) {
     invoice.status = "Paid";
@@ -805,6 +871,41 @@ export function cancelInvoicePayment(
   invoices[index] = invoice;
 
   saveInvoices(invoices);
+
+  /*
+   * ACTIVITY HISTORY
+   */
+  void createActivityLog({
+    action: "PAYMENT_CANCELLED",
+    module: "Payments",
+    record_id: invoice.invoiceNumber,
+    record_name: invoice.clientName,
+    description: `Cancelled payment of ₹${Number(
+      payment.amountPaid || 0,
+    ).toLocaleString("en-IN")} for invoice ${invoice.invoiceNumber}`,
+    old_data: {
+      paymentId: payment.id,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      clientName: invoice.clientName,
+      amountPaid: payment.amountPaid,
+      paymentMode: payment.paymentMode,
+      paymentDate: payment.paymentDate,
+      status: payment.status,
+    },
+    new_data: {
+      paymentId: payment.id,
+      status: "Cancelled",
+      cancellationReason: cancellationReason.trim() || "Payment cancelled",
+      cancelledAt: invoice.updatedAt,
+      totalPaid,
+      outstandingBalance: Math.max(
+        0,
+        roundMoney(invoice.grandTotal - totalPaid),
+      ),
+      invoiceStatus: invoice.status,
+    },
+  });
 
   return invoice;
 }
@@ -918,22 +1019,37 @@ export interface InvoiceSummary {
 export function getInvoiceSummary(): InvoiceSummary {
   const invoices = getInvoices();
 
+  /*
+   * Cancelled invoices remain in total history,
+   * but are excluded from financial totals.
+   */
+  const activeInvoices = invoices.filter(
+    (invoice) => invoice.status !== "Cancelled",
+  );
+
   const total = invoices.length;
 
-  const draft = invoices.filter((invoice) => invoice.status === "Draft").length;
+  const draft = activeInvoices.filter(
+    (invoice) => invoice.status === "Draft",
+  ).length;
 
-  const sent = invoices.filter((invoice) => invoice.status === "Sent").length;
+  const sent = activeInvoices.filter(
+    (invoice) => invoice.status === "Sent",
+  ).length;
 
-  const accepted = invoices.filter(
+  const accepted = activeInvoices.filter(
     (invoice) => invoice.status === "Paid",
   ).length;
 
   const totalValue = roundMoney(
-    invoices.reduce((sum, invoice) => sum + Number(invoice.grandTotal || 0), 0),
+    activeInvoices.reduce(
+      (sum, invoice) => sum + Number(invoice.grandTotal || 0),
+      0,
+    ),
   );
 
   const totalPaid = roundMoney(
-    invoices.reduce(
+    activeInvoices.reduce(
       (sum, invoice) =>
         sum +
         (Array.isArray(invoice.payments)
@@ -982,6 +1098,10 @@ export function updateOverdueInvoices(): void {
   let changed = false;
 
   invoices.forEach((invoice) => {
+    /*
+     * Paid and Cancelled invoices
+     * should never become overdue.
+     */
     if (invoice.status === "Paid" || invoice.status === "Cancelled") {
       return;
     }

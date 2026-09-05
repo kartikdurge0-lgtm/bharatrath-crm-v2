@@ -7,6 +7,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/Login";
 import AuthCallback from "./pages/AuthCallback";
 import { supabase } from "./lib/supabase";
+import { initializeClientSync } from "./data/clientStore";
 
 // Dashboard
 import Dashboard from "./pages/Dashboard";
@@ -69,6 +70,7 @@ import Settings from "./pages/Settings";
 
 function App() {
   console.log("Supabase client:", supabase);
+  initializeClientSync();
 
   return (
     <BrowserRouter>

@@ -6,11 +6,14 @@ import {
   updateLeadStatus,
   markLeadWon,
   markLeadLost,
+  type Lead,
 } from "../data/leadStore";
 
 import { getActiveSalesPersons } from "../data/salesPersonStore";
 import { getServices } from "../data/serviceStore";
 import { getLeadFollowUps } from "../data/followUpStore";
+
+import type { FollowUp } from "../data/followUpStore";
 
 import { getClientById } from "../data/clientStore";
 
@@ -20,11 +23,60 @@ export default function LeadDetails() {
 
   const [refresh, setRefresh] = useState(0);
 
+  /* =======================================================
+     LEAD
+  ======================================================= */
+
+  const [lead, setLead] = useState<Lead | null>(null);
+  const [loadingLead, setLoadingLead] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadLead() {
+      if (!leadId) {
+        if (mounted) {
+          setLead(null);
+          setLoadingLead(false);
+        }
+        return;
+      }
+
+      setLoadingLead(true);
+
+      try {
+        const result = await getLead(leadId);
+
+        if (!mounted) return;
+
+        setLead(result);
+      } catch (error) {
+        console.error("Failed to load lead:", error);
+
+        if (mounted) {
+          setLead(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoadingLead(false);
+        }
+      }
+    }
+
+    loadLead();
+
+    return () => {
+      mounted = false;
+    };
+  }, [leadId, refresh]);
+
+  /* =======================================================
+     SALES PERSONS
+  ======================================================= */
+
   const [salesPersons, setSalesPersons] = useState<
     Awaited<ReturnType<typeof getActiveSalesPersons>>
   >([]);
-
-  const lead = leadId ? getLead(leadId) : null;
 
   useEffect(() => {
     let mounted = true;
@@ -52,6 +104,71 @@ export default function LeadDetails() {
     };
   }, []);
 
+  /* =======================================================
+     FOLLOW-UPS
+  ======================================================= */
+
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [loadingFollowUps, setLoadingFollowUps] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadFollowUps() {
+      if (!leadId) {
+        if (mounted) {
+          setFollowUps([]);
+          setLoadingFollowUps(false);
+        }
+        return;
+      }
+
+      setLoadingFollowUps(true);
+
+      try {
+        const data = await getLeadFollowUps(leadId);
+
+        if (!mounted) return;
+
+        setFollowUps(data);
+      } catch (error) {
+        console.error("Failed to load lead follow-ups:", error);
+
+        if (mounted) {
+          setFollowUps([]);
+        }
+      } finally {
+        if (mounted) {
+          setLoadingFollowUps(false);
+        }
+      }
+    }
+
+    loadFollowUps();
+
+    return () => {
+      mounted = false;
+    };
+  }, [leadId, refresh]);
+
+  /* =======================================================
+     LOADING
+  ======================================================= */
+
+  if (loadingLead) {
+    return (
+      <div className="p-6">
+        <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
+          <p className="text-sm text-gray-500">Loading lead...</p>
+        </div>
+      </div>
+    );
+  }
+
+  /* =======================================================
+     NOT FOUND
+  ======================================================= */
+
   if (!lead) {
     return (
       <div className="p-6">
@@ -61,6 +178,7 @@ export default function LeadDetails() {
           </h2>
 
           <button
+            type="button"
             onClick={() => navigate("/leads")}
             className="mt-4 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
           >
@@ -71,6 +189,10 @@ export default function LeadDetails() {
     );
   }
 
+  /* =======================================================
+     RELATED DATA
+  ======================================================= */
+
   const salesPerson = salesPersons.find(
     (person) => person.id === lead.assignedTo,
   );
@@ -79,8 +201,6 @@ export default function LeadDetails() {
 
   const service = services.find((item) => item.id === lead.interestedService);
 
-  const followUps = getLeadFollowUps(lead.id);
-
   /*
    * Check whether this Lead has already been converted.
    */
@@ -88,7 +208,11 @@ export default function LeadDetails() {
     ? getClientById(lead.convertedClientId)
     : undefined;
 
-  const handleStatusChange = (
+  /* =======================================================
+     STATUS
+  ======================================================= */
+
+  const handleStatusChange = async (
     status:
       | "New"
       | "Contacted"
@@ -98,23 +222,45 @@ export default function LeadDetails() {
       | "Won"
       | "Lost",
   ) => {
-    updateLeadStatus(lead.id, status);
-    setRefresh((value) => value + 1);
+    try {
+      await updateLeadStatus(lead.id, status);
+
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      console.error("Failed to update lead status:", error);
+      alert("Failed to update lead status. Please try again.");
+    }
   };
 
-  const handleWon = () => {
-    markLeadWon(lead.id);
-    setRefresh((value) => value + 1);
+  const handleWon = async () => {
+    try {
+      await markLeadWon(lead.id);
+
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      console.error("Failed to mark lead as won:", error);
+      alert("Failed to mark lead as won. Please try again.");
+    }
   };
 
-  const handleLost = () => {
+  const handleLost = async () => {
     const reason = window.prompt("Enter lost reason:");
 
     if (reason === null) return;
 
-    markLeadLost(lead.id, reason);
-    setRefresh((value) => value + 1);
+    try {
+      await markLeadLost(lead.id, reason);
+
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      console.error("Failed to mark lead as lost:", error);
+      alert("Failed to mark lead as lost. Please try again.");
+    }
   };
+
+  /* =======================================================
+     CONVERSION
+  ======================================================= */
 
   const handleConvertToClient = () => {
     navigate(`/add-client?leadId=${encodeURIComponent(lead.id)}`);
@@ -138,6 +284,7 @@ export default function LeadDetails() {
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <button
+            type="button"
             onClick={() => navigate("/leads")}
             className="mb-3 text-sm text-gray-500 hover:text-gray-800"
           >
@@ -179,6 +326,7 @@ export default function LeadDetails() {
 
         <div className="flex flex-wrap gap-2">
           <button
+            type="button"
             onClick={() => navigate(`/leads/${lead.id}/edit`)}
             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
@@ -187,6 +335,7 @@ export default function LeadDetails() {
 
           {lead.status !== "Lost" && (
             <button
+              type="button"
               onClick={handleCreateQuotation}
               className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
             >
@@ -196,6 +345,7 @@ export default function LeadDetails() {
 
           {lead.status !== "Won" && (
             <button
+              type="button"
               onClick={handleWon}
               className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
             >
@@ -205,6 +355,7 @@ export default function LeadDetails() {
 
           {lead.status !== "Lost" && (
             <button
+              type="button"
               onClick={handleLost}
               className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
             >
@@ -235,6 +386,7 @@ export default function LeadDetails() {
               </div>
 
               <button
+                type="button"
                 onClick={() => navigate(`/clients/${convertedClient.id}`)}
                 className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
               >
@@ -252,6 +404,7 @@ export default function LeadDetails() {
               </div>
 
               <button
+                type="button"
                 onClick={handleConvertToClient}
                 className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
               >
@@ -279,6 +432,7 @@ export default function LeadDetails() {
             "Lost",
           ].map((status) => (
             <button
+              type="button"
               key={status}
               onClick={() =>
                 handleStatusChange(
@@ -312,11 +466,17 @@ export default function LeadDetails() {
 
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
           <InfoItem label="Company" value={lead.companyName} />
+
           <InfoItem label="Contact Person" value={lead.contactPerson} />
+
           <InfoItem label="Phone" value={lead.phone} />
+
           <InfoItem label="Email" value={lead.email} />
+
           <InfoItem label="Address" value={lead.address} />
+
           <InfoItem label="Lead Source" value={lead.leadSource} />
+
           <InfoItem label="Source Details" value={lead.sourceDetails} />
 
           <InfoItem
@@ -429,6 +589,7 @@ export default function LeadDetails() {
           <h2 className="text-base font-semibold text-gray-900">Follow-up</h2>
 
           <button
+            type="button"
             onClick={() =>
               navigate(
                 `/add-follow-up?relatedType=Lead&relatedId=${encodeURIComponent(
@@ -454,49 +615,63 @@ export default function LeadDetails() {
 
           <InfoItem label="Next Action" value={lead.nextAction} />
 
-          <InfoItem label="Total Follow-ups" value={String(followUps.length)} />
+          <InfoItem
+            label="Total Follow-ups"
+            value={loadingFollowUps ? "Loading..." : String(followUps.length)}
+          />
         </div>
 
-        {followUps.length > 0 && (
-          <div className="mt-5 overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 text-xs text-gray-500">
-                  <th className="px-3 py-3">Date</th>
-                  <th className="px-3 py-3">Purpose</th>
-                  <th className="px-3 py-3">Assigned To</th>
-                  <th className="px-3 py-3">Status</th>
-                  <th className="px-3 py-3">Action</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {followUps.map((followUp) => (
-                  <tr key={followUp.id} className="border-b border-gray-100">
-                    <td className="px-3 py-3">
-                      {followUp.followUpDate}
-                      {followUp.followUpTime ? ` ${followUp.followUpTime}` : ""}
-                    </td>
-
-                    <td className="px-3 py-3">{followUp.purpose || "-"}</td>
-
-                    <td className="px-3 py-3">{followUp.assignedTo || "-"}</td>
-
-                    <td className="px-3 py-3">{followUp.status}</td>
-
-                    <td className="px-3 py-3">
-                      <button
-                        onClick={() => navigate(`/follow-ups/${followUp.id}`)}
-                        className="text-green-600 hover:underline"
-                      >
-                        View
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {loadingFollowUps ? (
+          <div className="mt-5 rounded-lg bg-gray-50 p-4 text-center">
+            <p className="text-sm text-gray-500">Loading follow-ups...</p>
           </div>
+        ) : (
+          followUps.length > 0 && (
+            <div className="mt-5 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 text-xs text-gray-500">
+                    <th className="px-3 py-3">Date</th>
+                    <th className="px-3 py-3">Purpose</th>
+                    <th className="px-3 py-3">Assigned To</th>
+                    <th className="px-3 py-3">Status</th>
+                    <th className="px-3 py-3">Action</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {followUps.map((followUp) => (
+                    <tr key={followUp.id} className="border-b border-gray-100">
+                      <td className="px-3 py-3">
+                        {followUp.followUpDate}
+                        {followUp.followUpTime
+                          ? ` ${followUp.followUpTime}`
+                          : ""}
+                      </td>
+
+                      <td className="px-3 py-3">{followUp.purpose || "-"}</td>
+
+                      <td className="px-3 py-3">
+                        {followUp.assignedTo || "-"}
+                      </td>
+
+                      <td className="px-3 py-3">{followUp.status}</td>
+
+                      <td className="px-3 py-3">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/follow-ups/${followUp.id}`)}
+                          className="text-green-600 hover:underline"
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         )}
       </section>
 

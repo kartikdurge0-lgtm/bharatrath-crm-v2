@@ -9,7 +9,7 @@ import type {
   FollowUpRelatedType,
 } from "../data/followUpStore";
 
-import { getLeads } from "../data/leadStore";
+import { getLeads, type Lead } from "../data/leadStore";
 import { getClients } from "../data/clientStore";
 import { getQuotations } from "../data/quotationStore";
 import { getRenewals } from "../data/renewalStore";
@@ -42,6 +42,10 @@ function getStringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function normalizeText(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 function getRelatedRecordName(record: unknown): string {
   const item = record as Record<string, unknown>;
 
@@ -72,7 +76,53 @@ export default function EditFollowUp() {
   const navigate = useNavigate();
   const { followUpId } = useParams();
 
-  const followUp = followUpId ? getFollowUp(followUpId) : null;
+  const [followUp, setFollowUp] =
+    useState<Awaited<ReturnType<typeof getFollowUp>>>(null);
+
+  const [loadingFollowUp, setLoadingFollowUp] = useState(true);
+
+  /* =======================================================
+     LOAD FOLLOW-UP
+  ======================================================= */
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadFollowUp() {
+      if (!followUpId) {
+        if (mounted) {
+          setFollowUp(null);
+          setLoadingFollowUp(false);
+        }
+
+        return;
+      }
+
+      try {
+        const data = await getFollowUp(followUpId);
+
+        if (mounted) {
+          setFollowUp(data);
+        }
+      } catch (error) {
+        console.error("Failed to load follow-up:", error);
+
+        if (mounted) {
+          setFollowUp(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoadingFollowUp(false);
+        }
+      }
+    }
+
+    loadFollowUp();
+
+    return () => {
+      mounted = false;
+    };
+  }, [followUpId]);
 
   /* =======================================================
      SALES PERSONS
@@ -113,10 +163,43 @@ export default function EditFollowUp() {
   );
 
   /* =======================================================
-     RELATED DATA
+     LEADS
   ======================================================= */
 
-  const leads = getLeads();
+  const [leads, setLeads] = useState<Lead[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadLeads() {
+      try {
+        const leadList = await getLeads();
+
+        if (!mounted) {
+          return;
+        }
+
+        setLeads(leadList);
+      } catch (error) {
+        console.error("Failed to load leads:", error);
+
+        if (mounted) {
+          setLeads([]);
+        }
+      }
+    }
+
+    loadLeads();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  /* =======================================================
+     CLIENTS / QUOTATIONS / RENEWALS
+  ======================================================= */
+
   const clients = getClients();
   const quotations = getQuotations();
   const renewals = getRenewals();
@@ -126,40 +209,96 @@ export default function EditFollowUp() {
   ======================================================= */
 
   const [form, setForm] = useState({
-    relatedType: (followUp?.relatedType || "Lead") as FollowUpRelatedType,
+    relatedType: "Lead" as FollowUpRelatedType,
 
-    relatedId: followUp?.relatedId || "",
+    relatedId: "",
 
-    contactPerson: followUp?.contactPerson || "",
+    contactPerson: "",
 
-    phone: followUp?.phone || "",
+    phone: "",
 
-    purpose: followUp?.purpose || "",
+    purpose: "",
 
-    followUpType: followUp?.followUpType || "Call",
+    followUpType: "Call",
 
-    followUpDate: followUp?.followUpDate || "",
+    followUpDate: "",
 
-    followUpTime: followUp?.followUpTime || "",
+    followUpTime: "",
 
-    priority: followUp?.priority || ("Medium" as FollowUpPriority),
+    priority: "Medium" as FollowUpPriority,
 
-    assignedTo: followUp?.assignedTo || "",
+    assignedTo: "",
 
-    reminder: followUp?.reminder || "No Reminder",
+    reminder: "No Reminder",
 
-    nextFollowUpDate: followUp?.nextFollowUpDate || "",
+    nextFollowUpDate: "",
 
-    nextFollowUpTime: followUp?.nextFollowUpTime || "",
+    nextFollowUpTime: "",
 
-    nextAction: followUp?.nextAction || "",
+    nextAction: "",
 
-    notes: followUp?.notes || "",
+    notes: "",
 
-    clientResponse: followUp?.clientResponse || "",
+    clientResponse: "",
 
-    internalNotes: followUp?.internalNotes || "",
+    internalNotes: "",
   });
+
+  /* =======================================================
+     LOAD FORM FROM FOLLOW-UP
+  ======================================================= */
+
+  useEffect(() => {
+    if (!followUp) {
+      return;
+    }
+
+    setForm((previous) => ({
+      ...previous,
+
+      relatedType: (followUp.relatedType || "Lead") as FollowUpRelatedType,
+
+      /*
+       * IMPORTANT:
+       * Do not directly trust the database CL-xxx ID here.
+       *
+       * Existing local clients can have a different
+       * display ID. The next effect resolves the actual
+       * dropdown ID using ID OR company name.
+       */
+      relatedId: "",
+
+      contactPerson: followUp.contactPerson || "",
+
+      phone: followUp.phone || "",
+
+      purpose: followUp.purpose || "",
+
+      followUpType: followUp.followUpType || "Call",
+
+      followUpDate: followUp.followUpDate || "",
+
+      followUpTime: followUp.followUpTime || "",
+
+      priority: followUp.priority || "Medium",
+
+      assignedTo: followUp.assignedTo || "",
+
+      reminder: followUp.reminder || "No Reminder",
+
+      nextFollowUpDate: followUp.nextFollowUpDate || "",
+
+      nextFollowUpTime: followUp.nextFollowUpTime || "",
+
+      nextAction: followUp.nextAction || "",
+
+      notes: followUp.notes || "",
+
+      clientResponse: followUp.clientResponse || "",
+
+      internalNotes: followUp.internalNotes || "",
+    }));
+  }, [followUp]);
 
   const [error, setError] = useState("");
 
@@ -171,63 +310,154 @@ export default function EditFollowUp() {
     if (form.relatedType === "Lead") {
       return leads.map((lead) => ({
         id: lead.id,
+
         name: lead.companyName || lead.contactPerson || lead.phone || lead.id,
+
         contactPerson: lead.contactPerson,
+
         phone: lead.phone,
       }));
     }
 
     if (form.relatedType === "Client") {
-      return clients.map((client) => ({
-        id: client.id,
-        name:
-          client.company || client.contactPerson || client.phone || client.id,
-        contactPerson: client.contactPerson,
-        phone: client.phone,
-      }));
+      return clients
+        .filter((client) => client.archived !== true)
+        .map((client) => ({
+          id: client.id,
+
+          name:
+            client.company || client.contactPerson || client.phone || client.id,
+
+          contactPerson: client.contactPerson,
+
+          phone: client.phone,
+        }));
     }
 
     if (form.relatedType === "Quotation") {
       return quotations.map((quotation) => ({
         id: quotation.id,
+
         name: getRelatedRecordName(quotation),
+
         contactPerson: getRelatedContactPerson(quotation),
+
         phone: getRelatedPhone(quotation),
       }));
     }
 
     return renewals.map((renewal) => ({
       id: renewal.id,
+
       name: getRelatedRecordName(renewal),
+
       contactPerson: getRelatedContactPerson(renewal),
+
       phone: getRelatedPhone(renewal),
     }));
   }, [form.relatedType, leads, clients, quotations, renewals]);
+
+  /* =======================================================
+     RESTORE SELECTED RELATED RECORD
+     
+     IMPORTANT FIX:
+     Match by:
+     1. exact ID
+     2. company/name
+     
+     Example:
+     DB follow-up -> CL-005 / Royal Hill Farm
+     Local client -> CL-003 / Royal Hill Farm
+     
+     Result:
+     dropdown gets CL-003
+  ======================================================= */
+
+  useEffect(() => {
+    if (!followUp) {
+      return;
+    }
+
+    if (relatedRecords.length === 0) {
+      return;
+    }
+
+    const savedId = followUp.relatedId || "";
+
+    const savedName = followUp.relatedName || followUp.clientName || "";
+
+    let matchedRecord = relatedRecords.find((record) => record.id === savedId);
+
+    /*
+     * If IDs don't match, match using
+     * company / record name.
+     */
+    if (!matchedRecord && savedName) {
+      matchedRecord = relatedRecords.find(
+        (record) => normalizeText(record.name) === normalizeText(savedName),
+      );
+    }
+
+    /*
+     * Extra fallback for Client:
+     * compare contact + phone.
+     */
+    if (!matchedRecord && form.relatedType === "Client") {
+      matchedRecord = relatedRecords.find(
+        (record) =>
+          normalizeText(record.contactPerson) ===
+            normalizeText(followUp.contactPerson || "") &&
+          normalizeText(record.phone) === normalizeText(followUp.phone || ""),
+      );
+    }
+
+    if (!matchedRecord) {
+      setError(
+        `${form.relatedType} "${savedName}" could not be matched with the current records.`,
+      );
+
+      return;
+    }
+
+    setError("");
+
+    setForm((previous) => {
+      /*
+       * Don't update repeatedly if already correct.
+       */
+      if (previous.relatedId === matchedRecord.id) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+
+        relatedId: matchedRecord.id,
+
+        contactPerson: previous.contactPerson || matchedRecord.contactPerson,
+
+        phone: previous.phone || matchedRecord.phone,
+      };
+    });
+  }, [followUp, relatedRecords, form.relatedType]);
 
   /* =======================================================
      AUTO FILL CONTACT DETAILS
   ======================================================= */
 
   useEffect(() => {
-    if (!followUp) return;
-
-    /*
-     * Older follow-ups may not have relatedId.
-     * In that case we don't overwrite anything.
-     */
-    if (!form.relatedId) return;
+    if (!form.relatedId) {
+      return;
+    }
 
     const selected = relatedRecords.find(
       (record) => record.id === form.relatedId,
     );
 
-    if (!selected) return;
+    if (!selected) {
+      return;
+    }
 
-    /*
-     * Only auto-fill when the current values
-     * are empty. This prevents overwriting
-     * manually edited contact information.
-     */
     setForm((previous) => ({
       ...previous,
 
@@ -235,11 +465,7 @@ export default function EditFollowUp() {
 
       phone: previous.phone || selected.phone,
     }));
-
-    // Intentionally run when the selected
-    // related record changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.relatedId, form.relatedType]);
+  }, [form.relatedId, relatedRecords]);
 
   /* =======================================================
      UPDATE FIELD
@@ -257,11 +483,17 @@ export default function EditFollowUp() {
   ======================================================= */
 
   function handleRelatedTypeChange(type: FollowUpRelatedType) {
+    setError("");
+
     setForm((previous) => ({
       ...previous,
+
       relatedType: type,
+
       relatedId: "",
+
       contactPerson: "",
+
       phone: "",
     }));
   }
@@ -273,10 +505,15 @@ export default function EditFollowUp() {
   function handleRelatedRecordChange(recordId: string) {
     const selected = relatedRecords.find((record) => record.id === recordId);
 
+    setError("");
+
     setForm((previous) => ({
       ...previous,
+
       relatedId: recordId,
+
       contactPerson: selected?.contactPerson || "",
+
       phone: selected?.phone || "",
     }));
   }
@@ -285,32 +522,38 @@ export default function EditFollowUp() {
      SUBMIT
   ======================================================= */
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
     setError("");
 
     if (!followUp) {
       setError("Follow-up record could not be found.");
+
       return;
     }
 
     if (!form.relatedId) {
       setError(`Please select a ${form.relatedType}.`);
+
       return;
     }
 
     if (!form.assignedTo) {
       setError("Please select a team member.");
+
       return;
     }
 
     if (!form.followUpDate) {
       setError("Please select a follow-up date.");
+
       return;
     }
 
     if (!form.followUpTime) {
       setError("Please select a follow-up time.");
+
       return;
     }
 
@@ -320,50 +563,73 @@ export default function EditFollowUp() {
 
     if (!selectedRecord) {
       setError("Selected record could not be found.");
+
       return;
     }
 
-    updateFollowUp(followUp.id, {
-      relatedType: form.relatedType,
-      relatedId: form.relatedId,
-      relatedName: selectedRecord.name,
+    try {
+      await updateFollowUp(followUp.id, {
+        relatedType: form.relatedType,
 
-      clientId: form.relatedType === "Client" ? form.relatedId : "",
+        relatedId: form.relatedId,
 
-      clientName: form.relatedType === "Client" ? selectedRecord.name : "",
+        relatedName: selectedRecord.name,
 
-      contactPerson: form.contactPerson.trim(),
+        clientId: form.relatedType === "Client" ? form.relatedId : "",
 
-      phone: form.phone.trim(),
+        clientName: form.relatedType === "Client" ? selectedRecord.name : "",
 
-      purpose: form.purpose.trim(),
+        contactPerson: form.contactPerson.trim(),
 
-      followUpType: form.followUpType,
+        phone: form.phone.trim(),
 
-      followUpDate: form.followUpDate,
+        purpose: form.purpose.trim(),
 
-      followUpTime: form.followUpTime,
+        followUpType: form.followUpType,
 
-      priority: form.priority,
+        followUpDate: form.followUpDate,
 
-      assignedTo: form.assignedTo,
+        followUpTime: form.followUpTime,
 
-      reminder: form.reminder,
+        priority: form.priority,
 
-      nextFollowUpDate: form.nextFollowUpDate,
+        assignedTo: form.assignedTo,
 
-      nextFollowUpTime: form.nextFollowUpTime,
+        reminder: form.reminder,
 
-      nextAction: form.nextAction.trim(),
+        nextFollowUpDate: form.nextFollowUpDate,
 
-      notes: form.notes.trim(),
+        nextFollowUpTime: form.nextFollowUpTime,
 
-      clientResponse: form.clientResponse.trim(),
+        nextAction: form.nextAction.trim(),
 
-      internalNotes: form.internalNotes.trim(),
-    });
+        notes: form.notes.trim(),
 
-    navigate(`/follow-ups/${followUp.id}`);
+        clientResponse: form.clientResponse.trim(),
+
+        internalNotes: form.internalNotes.trim(),
+      });
+
+      navigate(`/follow-ups/${followUp.id}`);
+    } catch (updateError) {
+      console.error("Failed to update follow-up:", updateError);
+
+      setError("Failed to update follow-up. Please try again.");
+    }
+  }
+
+  /* =======================================================
+     LOADING
+  ======================================================= */
+
+  if (loadingFollowUp) {
+    return (
+      <div className="max-w-5xl mx-auto">
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center shadow-sm">
+          <p className="text-sm text-gray-500">Loading follow-up...</p>
+        </div>
+      </div>
+    );
   }
 
   /* =======================================================
@@ -457,8 +723,11 @@ export default function EditFollowUp() {
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="Lead">Lead</option>
+
                 <option value="Client">Client</option>
+
                 <option value="Quotation">Quotation</option>
+
                 <option value="Renewal">Renewal</option>
               </select>
             </div>
@@ -608,9 +877,7 @@ export default function EditFollowUp() {
 
               <select
                 value={form.priority}
-                onChange={(e) =>
-                  updateField("priority", e.target.value as FollowUpPriority)
-                }
+                onChange={(e) => updateField("priority", e.target.value)}
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 {priorities.map((item) => (

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
@@ -9,27 +9,101 @@ import {
   type Quotation,
 } from "../data/quotationStore";
 
-import { getLead } from "../data/leadStore";
+import { getLead, type Lead } from "../data/leadStore";
 import { getClientById } from "../data/clientStore";
 
 export default function QuotationDetails() {
   const navigate = useNavigate();
   const { quotationId } = useParams();
 
-  const quotation = useMemo<Quotation | null>(() => {
-    if (!quotationId) return null;
-    return getQuotation(quotationId);
+  const [quotation, setQuotation] = useState<Quotation | null>(null);
+  const [lead, setLead] = useState<Lead | null>(null);
+  const [loadingQuotation, setLoadingQuotation] = useState(true);
+  const [loadingLead, setLoadingLead] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadQuotation() {
+      if (!quotationId) {
+        if (mounted) {
+          setQuotation(null);
+          setLoadingQuotation(false);
+        }
+        return;
+      }
+
+      setLoadingQuotation(true);
+
+      try {
+        const result = await getQuotation(quotationId);
+
+        if (mounted) {
+          setQuotation(result);
+        }
+      } catch (error) {
+        console.error("Failed to load quotation:", error);
+
+        if (mounted) {
+          setQuotation(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoadingQuotation(false);
+        }
+      }
+    }
+
+    loadQuotation();
+
+    return () => {
+      mounted = false;
+    };
   }, [quotationId]);
 
-  const lead = useMemo(() => {
-    if (!quotation?.leadId) return null;
-    return getLead(quotation.leadId);
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadLead() {
+      if (!quotation?.leadId) {
+        if (mounted) {
+          setLead(null);
+          setLoadingLead(false);
+        }
+        return;
+      }
+
+      setLoadingLead(true);
+
+      try {
+        const result = await getLead(quotation.leadId);
+
+        if (mounted) {
+          setLead(result);
+        }
+      } catch (error) {
+        console.error("Failed to load related lead:", error);
+
+        if (mounted) {
+          setLead(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoadingLead(false);
+        }
+      }
+    }
+
+    loadLead();
+
+    return () => {
+      mounted = false;
+    };
   }, [quotation]);
 
-  const client = useMemo(() => {
-    if (!quotation?.clientId) return undefined;
-    return getClientById(quotation.clientId);
-  }, [quotation]);
+  const client = quotation?.clientId
+    ? getClientById(quotation.clientId)
+    : undefined;
 
   function currency(value: number) {
     return `₹${Number(value || 0).toLocaleString("en-IN", {
@@ -105,6 +179,36 @@ export default function QuotationDetails() {
 
     rejectQuotation(quotation.id);
     window.location.reload();
+  }
+
+  if (loadingQuotation) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">
+              Quotation Details
+            </h1>
+
+            <p className="mt-1 text-sm text-gray-500">
+              Loading quotation information...
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => navigate("/quotations")}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            ← Back to Quotations
+          </button>
+        </div>
+
+        <div className="rounded-xl border border-gray-200 bg-white p-10 text-center shadow-sm">
+          <p className="text-sm text-gray-500">Loading...</p>
+        </div>
+      </div>
+    );
   }
 
   if (!quotation) {
@@ -231,7 +335,9 @@ export default function QuotationDetails() {
             Related Lead
           </p>
 
-          {lead ? (
+          {loadingLead ? (
+            <p className="mt-2 text-sm text-gray-500">Loading lead...</p>
+          ) : lead ? (
             <>
               <p className="mt-2 text-base font-semibold text-gray-900">
                 {lead.companyName}
@@ -387,12 +493,9 @@ export default function QuotationDetails() {
                   Ashti Ventures Pvt. Ltd. (Bharatrath)
                 </p>
 
-                <p>Dynamic Grand Stand II</p>
+                <p>813/801, 8 th Floor, Tower A, WORLD TRADE CENTER,</p>
 
-                <p>
-                  Office No.108, Opposite Forest County Gate No.3, Kharadi,
-                  Pune, Maharashtra, India
-                </p>
+                <p>EON Free Zone, Kharadi, Pune, Maharashtra, India</p>
 
                 <p className="font-semibold">GST No – 27AAQCA3940C1ZR</p>
 

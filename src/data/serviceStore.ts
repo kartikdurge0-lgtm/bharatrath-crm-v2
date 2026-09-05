@@ -1,3 +1,5 @@
+import { createActivityLog } from "./activityLogStore";
+
 export type ServiceStatus = "Active" | "Inactive";
 
 export type ServiceCategory =
@@ -47,6 +49,30 @@ export type Service = {
 };
 
 const STORAGE_KEY = "crm-services";
+
+/* =====================================================
+   HELPERS
+===================================================== */
+
+function getServiceName(service: Service): string {
+  return service.service_name || service.serviceName || "";
+}
+
+function getServicePrice(service: Service): number {
+  return Number(service.default_price ?? service.defaultPrice ?? 0);
+}
+
+function getServiceBillingType(service: Service): BillingType {
+  return service.billing_type || service.billingType || "One Time";
+}
+
+function getServiceSacCode(service: Service): string {
+  return service.sac_code || service.sacCode || "";
+}
+
+function getServiceGstPercent(service: Service): GSTPercent {
+  return service.gst_percent ?? service.gstPercent ?? 18;
+}
 
 /* =====================================================
    GET ALL SERVICES
@@ -127,6 +153,15 @@ export function addService(service: Service): Service {
 
   saveServices(updated);
 
+  void createActivityLog({
+    action: "CREATE",
+    module: "Service",
+    record_id: service.id,
+    record_name: getServiceName(service),
+    description: `Service "${getServiceName(service)}" created.`,
+    new_data: service,
+  });
+
   return service;
 }
 
@@ -140,49 +175,77 @@ export function updateService(
 ): Service | null {
   const services = getServices();
 
-  let updatedService: Service | null = null;
+  const existingService = services.find(
+    (service) => String(service.id) === String(id),
+  );
 
-  const updated = services.map((service) => {
-    if (String(service.id) !== String(id)) {
-      return service;
-    }
-
-    updatedService = {
-      ...service,
-      ...updates,
-      updatedAt: new Date().toISOString(),
-    };
-
-    return updatedService;
-  });
-
-  if (!updatedService) {
+  if (!existingService) {
     return null;
   }
 
+  const updatedService: Service = {
+    ...existingService,
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const updated = services.map((service) =>
+    String(service.id) === String(id) ? updatedService : service,
+  );
+
   saveServices(updated);
+
+  void createActivityLog({
+    action: "UPDATE",
+    module: "Service",
+    record_id: updatedService.id,
+    record_name: getServiceName(updatedService),
+    description: `Service "${getServiceName(updatedService)}" updated.`,
+    old_data: existingService,
+    new_data: updatedService,
+  });
 
   return updatedService;
 }
 
 /* =====================================================
-   DELETE SERVICE
+   DELETE / ARCHIVE SERVICE
+   NOTE:
+   Services are never permanently deleted.
 ===================================================== */
 
 export function deleteService(id: string): boolean {
   const services = getServices();
 
-  const exists = services.some((service) => String(service.id) === String(id));
+  const existingService = services.find(
+    (service) => String(service.id) === String(id),
+  );
 
-  if (!exists) {
+  if (!existingService) {
     return false;
   }
 
-  const updated = services.filter(
-    (service) => String(service.id) !== String(id),
+  const updatedService: Service = {
+    ...existingService,
+    status: "Inactive",
+    updatedAt: new Date().toISOString(),
+  };
+
+  const updated = services.map((service) =>
+    String(service.id) === String(id) ? updatedService : service,
   );
 
   saveServices(updated);
+
+  void createActivityLog({
+    action: "ARCHIVE",
+    module: "Service",
+    record_id: updatedService.id,
+    record_name: getServiceName(updatedService),
+    description: `Service "${getServiceName(updatedService)}" archived.`,
+    old_data: existingService,
+    new_data: updatedService,
+  });
 
   return true;
 }
@@ -192,9 +255,39 @@ export function deleteService(id: string): boolean {
 ===================================================== */
 
 export function activateService(id: string): Service | null {
-  return updateService(id, {
+  const services = getServices();
+
+  const existingService = services.find(
+    (service) => String(service.id) === String(id),
+  );
+
+  if (!existingService) {
+    return null;
+  }
+
+  const updatedService: Service = {
+    ...existingService,
     status: "Active",
+    updatedAt: new Date().toISOString(),
+  };
+
+  const updated = services.map((service) =>
+    String(service.id) === String(id) ? updatedService : service,
+  );
+
+  saveServices(updated);
+
+  void createActivityLog({
+    action: "ACTIVATED",
+    module: "Service",
+    record_id: updatedService.id,
+    record_name: getServiceName(updatedService),
+    description: `Service "${getServiceName(updatedService)}" activated.`,
+    old_data: existingService,
+    new_data: updatedService,
   });
+
+  return updatedService;
 }
 
 /* =====================================================
@@ -202,7 +295,62 @@ export function activateService(id: string): Service | null {
 ===================================================== */
 
 export function deactivateService(id: string): Service | null {
-  return updateService(id, {
+  const services = getServices();
+
+  const existingService = services.find(
+    (service) => String(service.id) === String(id),
+  );
+
+  if (!existingService) {
+    return null;
+  }
+
+  const updatedService: Service = {
+    ...existingService,
     status: "Inactive",
+    updatedAt: new Date().toISOString(),
+  };
+
+  const updated = services.map((service) =>
+    String(service.id) === String(id) ? updatedService : service,
+  );
+
+  saveServices(updated);
+
+  void createActivityLog({
+    action: "DEACTIVATED",
+    module: "Service",
+    record_id: updatedService.id,
+    record_name: getServiceName(updatedService),
+    description: `Service "${getServiceName(updatedService)}" deactivated.`,
+    old_data: existingService,
+    new_data: updatedService,
   });
+
+  return updatedService;
+}
+
+/* =====================================================
+   COMPATIBILITY HELPERS
+   Useful for quotation / invoice pages
+===================================================== */
+
+export function getServiceDisplayName(service: Service): string {
+  return getServiceName(service);
+}
+
+export function getServiceDefaultPrice(service: Service): number {
+  return getServicePrice(service);
+}
+
+export function getServiceBilling(service: Service): BillingType {
+  return getServiceBillingType(service);
+}
+
+export function getServiceSAC(service: Service): string {
+  return getServiceSacCode(service);
+}
+
+export function getServiceGST(service: Service): GSTPercent {
+  return getServiceGstPercent(service);
 }

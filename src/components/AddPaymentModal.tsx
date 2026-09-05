@@ -54,7 +54,6 @@ function compressImage(
 
         if (width > maxWidth) {
           height = Math.round((height * maxWidth) / width);
-
           width = maxWidth;
         }
 
@@ -67,7 +66,6 @@ function compressImage(
 
         if (!context) {
           reject(new Error("Unable to process image."));
-
           return;
         }
 
@@ -104,6 +102,13 @@ export default function AddPaymentModal({
 }: AddPaymentModalProps) {
   const paymentSummary = getInvoicePaymentSummary(invoice);
 
+  const latestPayment = [...(invoice.payments || [])]
+    .filter((payment) => payment.status !== "Cancelled")
+    .sort(
+      (a, b) =>
+        new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime(),
+    )[0];
+
   const today = new Date().toISOString().split("T")[0];
 
   const [paymentDate, setPaymentDate] = useState(today);
@@ -112,11 +117,13 @@ export default function AddPaymentModal({
     paymentSummary.balance.toString(),
   );
 
-  const [paymentMode, setPaymentMode] = useState("Bank Transfer");
+  const [paymentMode, setPaymentMode] = useState(
+    latestPayment?.paymentMode || "Bank Transfer",
+  );
 
   const [transactionNumber, setTransactionNumber] = useState("");
 
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(latestPayment?.notes || "");
 
   const [paymentProof, setPaymentProof] = useState<PaymentProofData | null>(
     null,
@@ -201,7 +208,6 @@ export default function AddPaymentModal({
 
     if (!amount || amount <= 0) {
       setError("Please enter a valid payment amount.");
-
       return;
     }
 
@@ -217,13 +223,11 @@ export default function AddPaymentModal({
 
     if (!paymentDate) {
       setError("Please select payment date.");
-
       return;
     }
 
     if (!paymentMode) {
       setError("Please select payment mode.");
-
       return;
     }
 
@@ -231,18 +235,27 @@ export default function AddPaymentModal({
       setSaving(true);
 
       /*
-       * paymentProof is stored with the
-       * payment through invoiceStore.
+       * Payment proof is stored as the compressed
+       * data URL string.
        */
-
       addInvoicePayment(invoice.id, {
         paymentDate,
         amountPaid: amount,
         paymentMode,
         transactionNumber: transactionNumber.trim(),
         notes: notes.trim(),
-        paymentProof,
-      } as any);
+        paymentProof: paymentProof?.dataUrl || "",
+      });
+
+      /*
+       * addInvoicePayment() now creates:
+       *
+       * PAYMENT_ADDED
+       * Module: Payments
+       *
+       * The logged-in user's identity is obtained
+       * automatically by Supabase.
+       */
 
       onSaved();
 

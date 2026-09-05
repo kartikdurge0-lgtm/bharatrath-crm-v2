@@ -19,7 +19,8 @@ const PAGE_SIZE = 6;
 export default function Leads() {
   const navigate = useNavigate();
 
-  const [leads, setLeads] = useState<Lead[]>(getLeads());
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -34,6 +35,30 @@ export default function Leads() {
   const [salesPersons, setSalesPersons] = useState<
     Awaited<ReturnType<typeof getActiveSalesPersons>>
   >([]);
+
+  /* =================================================
+     LOAD LEADS
+  ================================================= */
+
+  const refresh = async () => {
+    try {
+      const data = await getLeads();
+      setLeads(data);
+    } catch (error) {
+      console.error("Failed to load leads:", error);
+      setLeads([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  /* =================================================
+     LOAD SALES PERSONS
+  ================================================= */
 
   useEffect(() => {
     let mounted = true;
@@ -60,10 +85,6 @@ export default function Leads() {
       mounted = false;
     };
   }, []);
-
-  const refresh = () => {
-    setLeads(getLeads());
-  };
 
   /* =================================================
      FILTERED LEADS
@@ -213,9 +234,13 @@ export default function Leads() {
      STATUS CHANGE
   ================================================= */
 
-  const handleStatusChange = (id: string, status: LeadStatus) => {
-    updateLeadStatus(id, status);
-    refresh();
+  const handleStatusChange = async (id: string, status: LeadStatus) => {
+    try {
+      await updateLeadStatus(id, status);
+      await refresh();
+    } catch (error) {
+      console.error("Failed to update lead status:", error);
+    }
   };
 
   /* =================================================
@@ -487,7 +512,16 @@ export default function Leads() {
             </thead>
 
             <tbody className="divide-y divide-slate-100">
-              {paginatedLeads.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={9}
+                    className="px-5 py-12 text-center text-sm text-slate-500"
+                  >
+                    Loading leads...
+                  </td>
+                </tr>
+              ) : paginatedLeads.length === 0 ? (
                 <tr>
                   <td
                     colSpan={9}
@@ -673,8 +707,8 @@ export default function Leads() {
       {showBulkUpload && (
         <BulkLeadUpload
           onClose={() => setShowBulkUpload(false)}
-          onImported={() => {
-            refresh();
+          onImported={async () => {
+            await refresh();
           }}
         />
       )}

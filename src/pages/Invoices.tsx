@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -111,11 +111,9 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
   return (
     <tr className="border-t border-slate-100 hover:bg-slate-50">
       {/* ID */}
-
       <td className="px-4 py-3.5 text-sm text-slate-600">{invoice.id}</td>
 
       {/* CLIENT */}
-
       <td className="px-4 py-3.5">
         <div className="font-semibold text-sm text-slate-900">{clientName}</div>
 
@@ -127,7 +125,6 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
       </td>
 
       {/* INVOICE NUMBER */}
-
       <td className="px-4 py-3.5">
         <Link
           to={`/invoices/${invoice.id}`}
@@ -138,19 +135,16 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
       </td>
 
       {/* DATE */}
-
       <td className="px-4 py-3.5 text-sm text-slate-600">
         {formatDate(invoice.invoiceDate)}
       </td>
 
       {/* DUE DATE */}
-
       <td className="px-4 py-3.5 text-sm text-slate-600">
         {formatDate(invoice.dueDate)}
       </td>
 
       {/* SERVICE */}
-
       <td className="px-4 py-3.5">
         <div className="max-w-[220px] truncate text-sm text-slate-700">
           {serviceName}
@@ -164,7 +158,6 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
       </td>
 
       {/* AMOUNT */}
-
       <td className="px-4 py-3.5 text-right">
         <div className="font-semibold text-slate-900">
           {currency(invoice.grandTotal)}
@@ -178,7 +171,6 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
       </td>
 
       {/* STATUS */}
-
       <td className="px-4 py-3.5">
         <span
           className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ${statusClass(
@@ -190,7 +182,6 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
       </td>
 
       {/* ACTION */}
-
       <td className="px-4 py-3.5 text-right">
         <div className="flex items-center justify-end gap-2">
           <Link
@@ -254,13 +245,35 @@ export default function Invoices() {
 
   const [currentPage, setCurrentPage] = useState(1);
 
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+
   /* =======================================================
-     READ INVOICES
+     LOAD INVOICES
   ======================================================= */
 
-  const invoices = useMemo(() => {
-    return getInvoicesSorted();
+  const loadInvoices = useCallback(() => {
+    try {
+      const data = getInvoicesSorted();
+      setInvoices(data);
+    } catch (error) {
+      console.error("Failed to load invoices:", error);
+      setInvoices([]);
+    }
   }, []);
+
+  useEffect(() => {
+    loadInvoices();
+
+    const handleFocus = () => {
+      loadInvoices();
+    };
+
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [loadInvoices]);
 
   /* =======================================================
      FILTER
@@ -357,9 +370,7 @@ export default function Invoices() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      {/* ===================================================
-          PAGE HEADER
-      =================================================== */}
+      {/* PAGE HEADER */}
 
       <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -376,9 +387,7 @@ export default function Invoices() {
         </Link>
       </div>
 
-      {/* ===================================================
-          SEARCH + FILTER
-      =================================================== */}
+      {/* SEARCH + FILTER */}
 
       <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_190px]">
@@ -408,9 +417,7 @@ export default function Invoices() {
         </div>
       </div>
 
-      {/* ===================================================
-          SUMMARY CARDS
-      =================================================== */}
+      {/* SUMMARY CARDS */}
 
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
         {/* TOTAL */}
@@ -504,9 +511,7 @@ export default function Invoices() {
         </div>
       </div>
 
-      {/* ===================================================
-          INVOICE TABLE
-      =================================================== */}
+      {/* INVOICE TABLE */}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
@@ -530,9 +535,7 @@ export default function Invoices() {
           ) : null}
         </div>
 
-        {/* =================================================
-            TABLE
-        ================================================= */}
+        {/* TABLE */}
 
         {filteredInvoices.length > 0 ? (
           <div className="overflow-x-auto">
@@ -570,9 +573,7 @@ export default function Invoices() {
           <EmptyState />
         )}
 
-        {/* =================================================
-            PAGINATION
-        ================================================= */}
+        {/* PAGINATION */}
 
         <Pagination
           currentPage={currentPage}
@@ -582,9 +583,7 @@ export default function Invoices() {
         />
       </div>
 
-      {/* ===================================================
-          FOOTER COUNT
-      =================================================== */}
+      {/* FOOTER COUNT */}
 
       <div className="mt-3 text-sm text-slate-500">
         Showing{" "}

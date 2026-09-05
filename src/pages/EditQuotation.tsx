@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { getQuotation, updateQuotation } from "../data/quotationStore";
-
 import { getServices } from "../data/serviceStore";
 import { getClients } from "../data/clientStore";
 
@@ -18,6 +18,86 @@ const emptyItem = (): AnyRecord => ({
   frequency: "",
 });
 
+/* =====================================================
+   HELPERS
+===================================================== */
+
+function text(value: unknown): string {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function normalize(value: unknown): string {
+  return text(value).trim().toLowerCase();
+}
+
+function getServiceId(service: AnyRecord): string {
+  return text(service.id ?? service.serviceId ?? service.service_id ?? "");
+}
+
+function getServiceName(service: AnyRecord): string {
+  return text(
+    service.service_name ??
+      service.serviceName ??
+      service.name ??
+      service.title ??
+      "",
+  );
+}
+
+function getServicePrice(service: AnyRecord): number {
+  return Number(
+    service.default_price ??
+      service.defaultPrice ??
+      service.price ??
+      service.cost ??
+      0,
+  );
+}
+
+function getServiceSac(service: AnyRecord): string {
+  return text(service.sac_code ?? service.sacCode ?? service.sac ?? "");
+}
+
+function getServiceFrequency(service: AnyRecord): string {
+  return text(
+    service.billing_type ?? service.billingType ?? service.frequency ?? "",
+  );
+}
+
+function getItemServiceId(item: AnyRecord): string {
+  return text(item.serviceId ?? item.service_id ?? "");
+}
+
+function getItemServiceName(item: AnyRecord): string {
+  return text(
+    item.serviceName ??
+      item.service_name ??
+      item.description ??
+      item.service ??
+      item.name ??
+      "",
+  );
+}
+
+function getClientId(client: AnyRecord): string {
+  return text(client.id ?? client.clientId ?? "");
+}
+
+function getClientName(client: AnyRecord): string {
+  return text(
+    client.company ??
+      client.companyName ??
+      client.company_name ??
+      client.clientName ??
+      client.name ??
+      "",
+  );
+}
+
+/* =====================================================
+   COMPONENT
+===================================================== */
+
 export default function EditQuotation() {
   const navigate = useNavigate();
   const { quotationId } = useParams();
@@ -25,12 +105,17 @@ export default function EditQuotation() {
   const [quotation, setQuotation] = useState<AnyRecord | null>(null);
 
   const [clients, setClients] = useState<AnyRecord[]>([]);
+
   const [services, setServices] = useState<AnyRecord[]>([]);
 
   const [clientId, setClientId] = useState("");
+
   const [quotationNumber, setQuotationNumber] = useState("");
+
   const [quotationDate, setQuotationDate] = useState("");
+
   const [validUntil, setValidUntil] = useState("");
+
   const [status, setStatus] = useState("Draft");
 
   const [items, setItems] = useState<AnyRecord[]>([emptyItem()]);
@@ -38,9 +123,13 @@ export default function EditQuotation() {
   const [gst, setGst] = useState(18);
 
   const [scopeOfWork, setScopeOfWork] = useState("");
+
   const [implementationProcess, setImplementationProcess] = useState("");
+
   const [supportTraining, setSupportTraining] = useState("");
+
   const [remarks, setRemarks] = useState("");
+
   const [termsConditions, setTermsConditions] = useState("");
 
   const [error, setError] = useState("");
@@ -50,7 +139,9 @@ export default function EditQuotation() {
   ===================================================== */
 
   useEffect(() => {
-    if (!quotationId) return;
+    if (!quotationId) {
+      return;
+    }
 
     const data = getQuotation(quotationId) as AnyRecord | null;
 
@@ -61,74 +152,157 @@ export default function EditQuotation() {
 
     setQuotation(data);
 
-    setClientId(data.clientId || "");
-    setQuotationNumber(data.quotationNumber || "");
-    setQuotationDate(data.quotationDate || "");
-    setValidUntil(data.validUntil || "");
-    setStatus(data.status || "Draft");
+    setClientId(text(data.clientId ?? data.client_id ?? ""));
+
+    setQuotationNumber(text(data.quotationNumber));
+
+    setQuotationDate(text(data.quotationDate));
+
+    setValidUntil(text(data.validUntil));
+
+    setStatus(text(data.status) || "Draft");
 
     setItems(
-      Array.isArray(data.items) && data.items.length
+      Array.isArray(data.items) && data.items.length > 0
         ? data.items
         : [emptyItem()],
     );
 
     setGst(Number(data.gst ?? data.gstRate ?? data.tax ?? 18));
 
-    setScopeOfWork(data.scopeOfWork || "");
-    setImplementationProcess(data.implementationProcess || "");
-    setSupportTraining(data.supportTraining || "");
-    setRemarks(data.remarks || "");
-    setTermsConditions(data.termsConditions || "");
+    setScopeOfWork(text(data.scopeOfWork));
+
+    setImplementationProcess(text(data.implementationProcess));
+
+    setSupportTraining(text(data.supportTraining));
+
+    setRemarks(text(data.remarks));
+
+    setTermsConditions(text(data.termsConditions));
   }, [quotationId]);
 
   /* =====================================================
-     LOAD CLIENTS / SERVICES
+     LOAD CLIENTS + SERVICES
   ===================================================== */
 
   useEffect(() => {
-    setClients((getClients() || []) as AnyRecord[]);
+    const loadedClients = getClients() || [];
 
-    setServices((getServices() || []) as AnyRecord[]);
+    const loadedServices = getServices() || [];
+
+    setClients(loadedClients as AnyRecord[]);
+
+    setServices(loadedServices as AnyRecord[]);
   }, []);
 
   /* =====================================================
-     CLIENT NAME
+     RESTORE EXISTING CLIENT
+
+     Old quotations may contain an old client ID.
+     First match by ID, then by client name.
+  ===================================================== */
+
+  useEffect(() => {
+    if (clients.length === 0 || !quotation) {
+      return;
+    }
+
+    const savedClientId = text(quotation.clientId ?? quotation.client_id ?? "");
+
+    const savedClientName = text(
+      quotation.clientName ?? quotation.client_name ?? "",
+    );
+
+    let matchedClient = clients.find(
+      (client) => getClientId(client) === savedClientId,
+    );
+
+    if (!matchedClient && savedClientName) {
+      matchedClient = clients.find(
+        (client) =>
+          normalize(getClientName(client)) === normalize(savedClientName),
+      );
+    }
+
+    if (matchedClient) {
+      setClientId(getClientId(matchedClient));
+    }
+  }, [clients, quotation]);
+
+  /* =====================================================
+     RESTORE EXISTING SERVICES
+
+     Match:
+     1. service ID
+     2. service name
+     3. item description
+
+     Existing quotation pricing is preserved.
+  ===================================================== */
+
+  useEffect(() => {
+    if (services.length === 0 || items.length === 0) {
+      return;
+    }
+
+    setItems((currentItems) =>
+      currentItems.map((item) => {
+        const savedId = getItemServiceId(item);
+
+        const savedName = getItemServiceName(item);
+
+        let matchedService = services.find(
+          (service) => savedId !== "" && getServiceId(service) === savedId,
+        );
+
+        if (!matchedService && savedName) {
+          matchedService = services.find(
+            (service) =>
+              normalize(getServiceName(service)) === normalize(savedName),
+          );
+        }
+
+        if (!matchedService) {
+          return item;
+        }
+
+        const currentServiceId = getServiceId(matchedService);
+
+        const currentServiceName = getServiceName(matchedService);
+
+        const currentSac = getServiceSac(matchedService);
+
+        const currentFrequency = getServiceFrequency(matchedService);
+
+        return {
+          ...item,
+
+          serviceId: currentServiceId,
+
+          serviceName: currentServiceName || savedName,
+
+          sac: text(item.sac) || currentSac,
+
+          frequency: text(item.frequency) || currentFrequency,
+        };
+      }),
+    );
+  }, [services]);
+
+  /* =====================================================
+     SELECTED CLIENT
   ===================================================== */
 
   const selectedClient = useMemo(() => {
-    return clients.find((client) => client.id === clientId);
+    return clients.find((client) => getClientId(client) === clientId);
   }, [clients, clientId]);
 
-  const clientName =
-    selectedClient?.companyName ||
-    selectedClient?.clientName ||
-    selectedClient?.name ||
-    quotation?.clientName ||
-    "";
+  const clientName = selectedClient
+    ? getClientName(selectedClient)
+    : text(quotation?.clientName ?? quotation?.client_name ?? "");
 
   /* =====================================================
-     SERVICE HELPERS
-  ===================================================== */
-
-  function getServiceName(service: AnyRecord) {
-    return service.name || service.serviceName || "";
-  }
-
-  function getServicePrice(service: AnyRecord) {
-    return Number(service.defaultPrice ?? service.price ?? 0);
-  }
-
-  function getServiceSac(service: AnyRecord) {
-    return service.sacCode || service.sac || "";
-  }
-
-  function getServiceFrequency(service: AnyRecord) {
-    return service.billingType || service.frequency || "";
-  }
-
-  /* =====================================================
-     ADD ITEM
+     ADD SERVICE ROW
   ===================================================== */
 
   function addServiceRow() {
@@ -136,7 +310,7 @@ export default function EditQuotation() {
   }
 
   /* =====================================================
-     DELETE ITEM
+     DELETE SERVICE ROW
   ===================================================== */
 
   function deleteServiceRow(index: number) {
@@ -150,15 +324,17 @@ export default function EditQuotation() {
   }
 
   /* =====================================================
-     SERVICE SELECT
+     SERVICE CHANGE
   ===================================================== */
 
   function handleServiceChange(index: number, serviceId: string) {
-    const service = services.find((item) => item.id === serviceId);
+    const service = services.find((item) => getServiceId(item) === serviceId);
 
     setItems((current) =>
       current.map((item, i) => {
-        if (i !== index) return item;
+        if (i !== index) {
+          return item;
+        }
 
         if (!service) {
           return {
@@ -172,7 +348,7 @@ export default function EditQuotation() {
         return {
           ...item,
 
-          serviceId: service.id,
+          serviceId: getServiceId(service),
 
           serviceName: getServiceName(service),
 
@@ -197,7 +373,9 @@ export default function EditQuotation() {
   function updateItem(index: number, field: string, value: any) {
     setItems((current) =>
       current.map((item, i) => {
-        if (i !== index) return item;
+        if (i !== index) {
+          return item;
+        }
 
         const updated = {
           ...item,
@@ -248,7 +426,7 @@ export default function EditQuotation() {
      SAVE
   ===================================================== */
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setError("");
@@ -263,7 +441,9 @@ export default function EditQuotation() {
       return;
     }
 
-    const validItems = items.filter((item) => item.serviceId);
+    const validItems = items.filter(
+      (item) => item.serviceId || getItemServiceName(item),
+    );
 
     if (validItems.length === 0) {
       setError("Please add at least one service.");
@@ -274,10 +454,13 @@ export default function EditQuotation() {
       ...quotation,
 
       clientId,
+
       clientName,
 
       quotationNumber,
+
       quotationDate,
+
       validUntil,
 
       status,
@@ -407,12 +590,8 @@ export default function EditQuotation() {
               <option value="">Select Client</option>
 
               {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.companyName ||
-                    client.clientName ||
-                    client.name ||
-                    client.id}{" "}
-                  ({client.id})
+                <option key={getClientId(client)} value={getClientId(client)}>
+                  {getClientName(client) || getClientId(client)}
                 </option>
               ))}
             </select>
@@ -569,7 +748,10 @@ export default function EditQuotation() {
                       <option value="">Select Service</option>
 
                       {services.map((service) => (
-                        <option key={service.id} value={service.id}>
+                        <option
+                          key={getServiceId(service)}
+                          value={getServiceId(service)}
+                        >
                           {getServiceName(service)}
                         </option>
                       ))}
@@ -587,7 +769,7 @@ export default function EditQuotation() {
                     />
                   </td>
 
-                  {/* BASIC */}
+                  {/* BASIC COST */}
 
                   <td className="px-3 py-4">
                     <input
@@ -615,7 +797,7 @@ export default function EditQuotation() {
                     />
                   </td>
 
-                  {/* FINAL */}
+                  {/* FINAL COST */}
 
                   <td className="px-3 py-4">
                     <input

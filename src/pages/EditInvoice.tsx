@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   calculateInvoiceTotals,
   getInvoice,
+  getInvoicePaymentSummary,
   updateInvoice,
   type InvoiceItem,
   type InvoiceStatus,
@@ -17,6 +18,7 @@ import { getServices } from "../data/serviceStore";
 
 type Client = {
   id: string;
+  company?: string;
   companyName?: string;
   company_name?: string;
   name?: string;
@@ -106,6 +108,35 @@ export default function EditInvoice() {
   }
 
   /* =======================================================
+     PAYMENT SUMMARY
+  ======================================================= */
+
+  const paymentSummary = getInvoicePaymentSummary(invoice);
+
+  /*
+   * Payment-controlled statuses must not be manually changed.
+   *
+   * Draft / Sent:
+   *   Editable from this page.
+   *
+   * Partially Paid / Paid / Overdue:
+   *   Controlled by payment / due-date logic.
+   *
+   * Cancelled:
+   *   Locked.
+   */
+
+  const isPaymentControlled =
+    paymentSummary.totalPaid > 0 ||
+    invoice.status === "Partially Paid" ||
+    invoice.status === "Paid" ||
+    invoice.status === "Overdue";
+
+  const isCancelled = invoice.status === "Cancelled";
+
+  const isStatusLocked = isPaymentControlled || isCancelled;
+
+  /* =======================================================
      TOTALS
   ======================================================= */
 
@@ -120,6 +151,7 @@ export default function EditInvoice() {
   );
 
   const clientName =
+    selectedClient?.company ||
     selectedClient?.companyName ||
     selectedClient?.company_name ||
     selectedClient?.name ||
@@ -326,6 +358,11 @@ export default function EditInvoice() {
       return;
     }
 
+    if (dueDate && dueDate < invoiceDate) {
+      setError("Due date cannot be before invoice date.");
+      return;
+    }
+
     const validItems = items.filter(
       (item) => item.serviceId && item.serviceName,
     );
@@ -334,6 +371,14 @@ export default function EditInvoice() {
       setError("Please add at least one service.");
       return;
     }
+
+    /*
+     * Never overwrite a payment-controlled status.
+     * The invoice status remains whatever the payment
+     * system currently says.
+     */
+
+    const finalStatus: InvoiceStatus = isStatusLocked ? invoice.status : status;
 
     updateInvoice(invoice.id, {
       clientId: String(clientId),
@@ -344,7 +389,7 @@ export default function EditInvoice() {
 
       dueDate,
 
-      status,
+      status: finalStatus,
 
       items: validItems,
 
@@ -429,7 +474,8 @@ export default function EditInvoice() {
 
                 {clients.map((client) => (
                   <option key={client.id} value={client.id}>
-                    {client.companyName ||
+                    {client.company ||
+                      client.companyName ||
                       client.company_name ||
                       client.name ||
                       client.id}
@@ -506,26 +552,71 @@ export default function EditInvoice() {
 
               <select
                 value={status}
+                disabled={isStatusLocked}
                 onChange={(event) =>
                   setStatus(event.target.value as InvoiceStatus)
                 }
-                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm"
+                className={`w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm ${
+                  isStatusLocked
+                    ? "cursor-not-allowed bg-gray-50 text-gray-500"
+                    : ""
+                }`}
               >
-                <option value="Draft">Draft</option>
+                {isStatusLocked ? (
+                  <option value={invoice.status}>{invoice.status}</option>
+                ) : (
+                  <>
+                    <option value="Draft">Draft</option>
 
-                <option value="Sent">Sent</option>
-
-                <option value="Partially Paid">Partially Paid</option>
-
-                <option value="Paid">Paid</option>
-
-                <option value="Overdue">Overdue</option>
-
-                <option value="Cancelled">Cancelled</option>
+                    <option value="Sent">Sent</option>
+                  </>
+                )}
               </select>
+
+              <p className="mt-1 text-xs text-gray-400">
+                {isCancelled
+                  ? "Cancelled invoices cannot have their status changed."
+                  : isPaymentControlled
+                    ? "Payment-related status is controlled automatically by payment records."
+                    : "Use Draft or Sent. Payment status updates automatically when payments are recorded."}
+              </p>
             </div>
           </div>
         </div>
+
+        {/* =================================================
+            PAYMENT SUMMARY
+        ================================================= */}
+
+        {paymentSummary.totalPaid > 0 && (
+          <div className="rounded-xl border border-green-200 bg-green-50 p-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div>
+                <p className="text-xs text-gray-500">Invoice Total</p>
+
+                <p className="mt-1 text-sm font-bold text-gray-900">
+                  {currency(invoice.grandTotal)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs text-gray-500">Paid</p>
+
+                <p className="mt-1 text-sm font-bold text-green-700">
+                  {currency(paymentSummary.totalPaid)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs text-gray-500">Balance</p>
+
+                <p className="mt-1 text-sm font-bold text-amber-700">
+                  {currency(paymentSummary.balance)}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* =================================================
             ITEMS
@@ -583,7 +674,27 @@ export default function EditInvoice() {
 
                     <td className="px-3 py-4">
                       <select
-                        value={item.serviceId || ""}
+                        value={
+                          services.find(
+                            (service) =>
+                              String(service.id) === String(item.serviceId),
+                          )?.id ||
+                          services.find(
+                            (service) =>
+                              service.status !== "Inactive" &&
+                              (
+                                service.serviceName ||
+                                service.service_name ||
+                                ""
+                              )
+                                .trim()
+                                .toLowerCase() ===
+                                String(item.serviceName || "")
+                                  .trim()
+                                  .toLowerCase(),
+                          )?.id ||
+                          ""
+                        }
                         onChange={(event) =>
                           handleServiceChange(index, event.target.value)
                         }
@@ -591,12 +702,32 @@ export default function EditInvoice() {
                       >
                         <option value="">Select Service</option>
 
-                        {services.map((service) => (
-                          <option key={service.id} value={service.id}>
-                            {service.serviceName || service.service_name}
-                          </option>
-                        ))}
+                        {services
+                          .filter((service) => service.status !== "Inactive")
+                          .map((service) => (
+                            <option key={service.id} value={service.id}>
+                              {service.serviceName || service.service_name}
+                            </option>
+                          ))}
                       </select>
+
+                      <input
+                        value={item.description || ""}
+                        onChange={(event) =>
+                          setItems((current) =>
+                            current.map((currentItem, itemIndex) =>
+                              itemIndex === index
+                                ? {
+                                    ...currentItem,
+                                    description: event.target.value,
+                                  }
+                                : currentItem,
+                            ),
+                          )
+                        }
+                        placeholder="Description"
+                        className="mt-2 w-full min-w-[250px] rounded-lg border border-gray-200 px-3 py-2 text-xs"
+                      />
                     </td>
 
                     <td className="px-3 py-4">
@@ -611,6 +742,7 @@ export default function EditInvoice() {
                       <input
                         type="number"
                         min="0"
+                        step="0.01"
                         value={item.basicCost}
                         onChange={(event) =>
                           handleBasicCost(index, event.target.value)
@@ -623,6 +755,7 @@ export default function EditInvoice() {
                       <input
                         type="number"
                         min="0"
+                        step="0.01"
                         value={item.discount}
                         onChange={(event) =>
                           handleDiscount(index, event.target.value)
@@ -708,7 +841,7 @@ export default function EditInvoice() {
 
         {/* ACTION */}
 
-        <div className="flex justify-end gap-3">
+        <div className="flex justify-end gap-3 pb-10">
           <button
             type="button"
             onClick={() => navigate(`/invoices/${invoice.id}`)}

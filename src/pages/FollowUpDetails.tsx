@@ -8,7 +8,7 @@ import {
   deleteFollowUp,
 } from "../data/followUpStore";
 
-import type { FollowUpPriority } from "../data/followUpStore";
+import type { FollowUp, FollowUpPriority } from "../data/followUpStore";
 
 import { getActiveSalesPersons } from "../data/salesPersonStore";
 
@@ -105,14 +105,58 @@ export default function FollowUpDetails() {
   const navigate = useNavigate();
   const { followUpId } = useParams();
 
-  const [, setRefresh] = useState(0);
+  const [followUp, setFollowUp] = useState<FollowUp | null>(null);
+  const [loadingFollowUp, setLoadingFollowUp] = useState(true);
+
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [processing, setProcessing] = useState(false);
 
   const [salesPersons, setSalesPersons] = useState<
     Awaited<ReturnType<typeof getActiveSalesPersons>>
   >([]);
 
-  const followUp = followUpId ? getFollowUp(followUpId) : null;
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadFollowUp() {
+      if (!followUpId) {
+        if (mounted) {
+          setFollowUp(null);
+          setLoadingFollowUp(false);
+        }
+
+        return;
+      }
+
+      setLoadingFollowUp(true);
+
+      try {
+        const data = await getFollowUp(followUpId);
+
+        if (!mounted) return;
+
+        setFollowUp(data);
+      } catch (error) {
+        console.error("Failed to load follow-up:", error);
+
+        if (mounted) {
+          setFollowUp(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoadingFollowUp(false);
+        }
+      }
+    }
+
+    loadFollowUp();
+
+    return () => {
+      mounted = false;
+    };
+  }, [followUpId, refreshKey]);
 
   useEffect(() => {
     let mounted = true;
@@ -143,6 +187,24 @@ export default function FollowUpDetails() {
   const internalTeam = salesPersons.filter(
     (person) => person.type === "Staff" || person.type === "Part-time",
   );
+
+  if (loadingFollowUp) {
+    return (
+      <div className="mx-auto max-w-5xl">
+        <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+          <div className="mb-3 text-3xl">📞</div>
+
+          <h2 className="text-lg font-semibold text-slate-900">
+            Loading follow-up...
+          </h2>
+
+          <p className="mt-2 text-sm text-slate-500">
+            Please wait while the follow-up details are loaded.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (!followUp) {
     return (
@@ -175,21 +237,57 @@ export default function FollowUpDetails() {
   );
 
   const relatedName = followUp.relatedName || followUp.clientName || "-";
+
   const overdue = isOverdue(followUp);
 
-  const handleComplete = () => {
-    completeFollowUp(followUp.id);
-    setRefresh((value) => value + 1);
+  const handleComplete = async () => {
+    if (processing) return;
+
+    setProcessing(true);
+
+    try {
+      await completeFollowUp(followUp.id);
+
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      console.error("Failed to complete follow-up:", error);
+      alert("Failed to complete follow-up. Please try again.");
+    } finally {
+      setProcessing(false);
+    }
   };
 
-  const handleReopen = () => {
-    reopenFollowUp(followUp.id);
-    setRefresh((value) => value + 1);
+  const handleReopen = async () => {
+    if (processing) return;
+
+    setProcessing(true);
+
+    try {
+      await reopenFollowUp(followUp.id);
+
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      console.error("Failed to reopen follow-up:", error);
+      alert("Failed to reopen follow-up. Please try again.");
+    } finally {
+      setProcessing(false);
+    }
   };
 
-  const handleDelete = () => {
-    deleteFollowUp(followUp.id);
-    navigate("/follow-ups");
+  const handleDelete = async () => {
+    if (processing) return;
+
+    setProcessing(true);
+
+    try {
+      await deleteFollowUp(followUp.id);
+
+      navigate("/follow-ups");
+    } catch (error) {
+      console.error("Failed to delete follow-up:", error);
+      alert("Failed to delete follow-up. Please try again.");
+      setProcessing(false);
+    }
   };
 
   return (
@@ -239,24 +337,27 @@ export default function FollowUpDetails() {
             <button
               type="button"
               onClick={handleComplete}
-              className="rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-green-700"
+              disabled={processing}
+              className="rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              ✓ Complete
+              {processing ? "Processing..." : "✓ Complete"}
             </button>
           ) : (
             <button
               type="button"
               onClick={handleReopen}
-              className="rounded-lg border border-blue-300 bg-white px-4 py-2.5 text-sm font-medium text-blue-600 hover:bg-blue-50"
+              disabled={processing}
+              className="rounded-lg border border-blue-300 bg-white px-4 py-2.5 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Reopen
+              {processing ? "Processing..." : "Reopen"}
             </button>
           )}
 
           <button
             type="button"
             onClick={() => setShowDeleteConfirm(true)}
-            className="rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
+            disabled={processing}
+            className="rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Delete
           </button>
@@ -464,15 +565,16 @@ export default function FollowUpDetails() {
             </h3>
 
             <p className="mt-2 text-sm text-slate-500">
-              This follow-up will be permanently deleted. This action cannot be
-              undone.
+              This follow-up will be archived and removed from the active
+              follow-up list.
             </p>
 
             <div className="mt-6 flex justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(false)}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                disabled={processing}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -480,9 +582,10 @@ export default function FollowUpDetails() {
               <button
                 type="button"
                 onClick={handleDelete}
-                className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700"
+                disabled={processing}
+                className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Delete
+                {processing ? "Deleting..." : "Delete"}
               </button>
             </div>
           </div>

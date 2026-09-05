@@ -386,9 +386,61 @@ export default function Reports() {
     [invoices],
   );
 
-  const followUps = useMemo<FollowUp[]>(() => getFollowUps(), [refreshKey]);
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
 
-  const leads = useMemo<Lead[]>(() => getLeads(), [refreshKey]);
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadFollowUps() {
+      try {
+        const data = await getFollowUps();
+
+        if (!mounted) return;
+
+        setFollowUps(data);
+      } catch (error) {
+        console.error("Failed to load follow-ups:", error);
+
+        if (mounted) {
+          setFollowUps([]);
+        }
+      }
+    }
+
+    loadFollowUps();
+
+    return () => {
+      mounted = false;
+    };
+  }, [refreshKey]);
+
+  const [leads, setLeads] = useState<Lead[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadLeads() {
+      try {
+        const data = await getLeads();
+
+        if (!mounted) return;
+
+        setLeads(data);
+      } catch (error) {
+        console.error("Failed to load leads:", error);
+
+        if (mounted) {
+          setLeads([]);
+        }
+      }
+    }
+
+    loadLeads();
+
+    return () => {
+      mounted = false;
+    };
+  }, [refreshKey]);
 
   const quotations = useMemo<Quotation[]>(() => getQuotations(), [refreshKey]);
 

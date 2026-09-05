@@ -137,7 +137,8 @@ function relatedTypeClass(type?: FollowUpRelatedType) {
 export default function FollowUps() {
   const navigate = useNavigate();
 
-  const [followUps, setFollowUps] = useState<FollowUp[]>(() => getFollowUps());
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [salesPersons, setSalesPersons] = useState<
     Awaited<ReturnType<typeof getActiveSalesPersons>>
@@ -158,6 +159,49 @@ export default function FollowUps() {
   >("All");
 
   const [currentPage, setCurrentPage] = useState(1);
+
+  /* =================================================
+     LOAD FOLLOW-UPS
+  ================================================= */
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadFollowUps() {
+      try {
+        setLoading(true);
+
+        const data = await getFollowUps();
+
+        if (!mounted) return;
+
+        setFollowUps(data);
+      } catch (error) {
+        console.error("Failed to load follow-ups:", error);
+
+        if (mounted) {
+          setFollowUps([]);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadFollowUps();
+
+    const handleFocus = () => {
+      loadFollowUps();
+    };
+
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, []);
 
   /* =================================================
      LOAD SALES PERSONS
@@ -334,14 +378,30 @@ export default function FollowUps() {
      ACTIONS
   ================================================= */
 
-  function handleComplete(id: string) {
-    completeFollowUp(id);
-    setFollowUps(getFollowUps());
+  async function handleComplete(id: string) {
+    try {
+      await completeFollowUp(id);
+
+      const updatedFollowUps = await getFollowUps();
+
+      setFollowUps(updatedFollowUps);
+    } catch (error) {
+      console.error("Failed to complete follow-up:", error);
+      alert("Failed to complete follow-up. Please try again.");
+    }
   }
 
-  function handleReopen(id: string) {
-    reopenFollowUp(id);
-    setFollowUps(getFollowUps());
+  async function handleReopen(id: string) {
+    try {
+      await reopenFollowUp(id);
+
+      const updatedFollowUps = await getFollowUps();
+
+      setFollowUps(updatedFollowUps);
+    } catch (error) {
+      console.error("Failed to reopen follow-up:", error);
+      alert("Failed to reopen follow-up. Please try again.");
+    }
   }
 
   function resetFilters() {
@@ -612,7 +672,19 @@ export default function FollowUps() {
       ================================================= */}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        {paginatedFollowUps.length === 0 ? (
+        {loading ? (
+          <div className="py-12 text-center">
+            <div className="mb-2 text-3xl">📞</div>
+
+            <h3 className="text-base font-semibold text-slate-900">
+              Loading follow-ups...
+            </h3>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Please wait while follow-ups are loaded.
+            </p>
+          </div>
+        ) : paginatedFollowUps.length === 0 ? (
           <div className="py-12 text-center">
             <div className="mb-2 text-3xl">📞</div>
 

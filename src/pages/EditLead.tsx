@@ -2,9 +2,14 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { getLead, updateLead, calculateCommission } from "../data/leadStore";
-
-import type { LeadPriority, LeadSource } from "../data/leadStore";
+import {
+  getLead,
+  updateLead,
+  calculateCommission,
+  type Lead,
+  type LeadPriority,
+  type LeadSource,
+} from "../data/leadStore";
 
 import { getActiveSalesPersons } from "../data/salesPersonStore";
 import { getServices } from "../data/serviceStore";
@@ -27,7 +32,54 @@ export default function EditLead() {
   const { leadId } = useParams();
   const navigate = useNavigate();
 
-  const lead = leadId ? getLead(leadId) : null;
+  /* =======================================================
+     LEAD
+  ======================================================= */
+
+  const [lead, setLead] = useState<Lead | null>(null);
+  const [loadingLead, setLoadingLead] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadLead() {
+      if (!leadId) {
+        if (mounted) {
+          setLead(null);
+          setLoadingLead(false);
+        }
+        return;
+      }
+
+      try {
+        const result = await getLead(leadId);
+
+        if (!mounted) return;
+
+        setLead(result);
+      } catch (error) {
+        console.error("Failed to load lead:", error);
+
+        if (mounted) {
+          setLead(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoadingLead(false);
+        }
+      }
+    }
+
+    loadLead();
+
+    return () => {
+      mounted = false;
+    };
+  }, [leadId]);
+
+  /* =======================================================
+     FORM STATE
+  ======================================================= */
 
   const [companyName, setCompanyName] = useState("");
   const [contactPerson, setContactPerson] = useState("");
@@ -60,6 +112,10 @@ export default function EditLead() {
   const [nextFollowUpTime, setNextFollowUpTime] = useState("");
   const [nextAction, setNextAction] = useState("");
 
+  /* =======================================================
+     SALES PERSONS & SERVICES
+  ======================================================= */
+
   const [salesPersons, setSalesPersons] = useState<
     Awaited<ReturnType<typeof getActiveSalesPersons>>
   >([]);
@@ -71,7 +127,10 @@ export default function EditLead() {
   const [showMore, setShowMore] = useState(false);
   const [error, setError] = useState("");
 
-  // Load Sales Persons and Services
+  /* =======================================================
+     LOAD SALES PERSONS & SERVICES
+  ======================================================= */
+
   useEffect(() => {
     let mounted = true;
 
@@ -79,12 +138,13 @@ export default function EditLead() {
       try {
         const [persons, serviceList] = await Promise.all([
           getActiveSalesPersons(),
-          Promise.resolve(getServices()),
+          getServices(),
         ]);
 
         if (!mounted) return;
 
         setSalesPersons(persons);
+
         setServices(
           serviceList.filter((service) => service.status === "Active"),
         );
@@ -104,6 +164,10 @@ export default function EditLead() {
       mounted = false;
     };
   }, []);
+
+  /* =======================================================
+     LOAD LEAD INTO FORM
+  ======================================================= */
 
   useEffect(() => {
     if (!lead) return;
@@ -141,12 +205,29 @@ export default function EditLead() {
     setNextAction(lead.nextAction);
   }, [lead]);
 
+  /* =======================================================
+     LOADING
+  ======================================================= */
+
+  if (loadingLead) {
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
+        <p className="text-sm text-gray-500">Loading lead...</p>
+      </div>
+    );
+  }
+
+  /* =======================================================
+     NOT FOUND
+  ======================================================= */
+
   if (!lead) {
     return (
       <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
         <h2 className="text-lg font-semibold text-gray-800">Lead not found</h2>
 
         <button
+          type="button"
           onClick={() => navigate("/leads")}
           className="mt-4 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
         >
@@ -155,6 +236,10 @@ export default function EditLead() {
       </div>
     );
   }
+
+  /* =======================================================
+     SALES PERSON CHANGE
+  ======================================================= */
 
   const handleSalesPersonChange = (value: string) => {
     setAssignedTo(value);
@@ -167,7 +252,11 @@ export default function EditLead() {
     }
   };
 
-  const handleSubmit = (event: FormEvent) => {
+  /* =======================================================
+     SUBMIT
+  ======================================================= */
+
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
 
     setError("");
@@ -201,45 +290,50 @@ export default function EditLead() {
       ? calculateCommission(expectedValue, commissionPercent)
       : 0;
 
-    updateLead(lead.id, {
-      companyName: companyName.trim(),
-      contactPerson: contactPerson.trim(),
-      phone: phone.trim(),
-      email: email.trim(),
-      address: address.trim(),
+    try {
+      await updateLead(lead.id, {
+        companyName: companyName.trim(),
+        contactPerson: contactPerson.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        address: address.trim(),
 
-      leadSource,
-      sourceDetails: sourceDetails.trim(),
+        leadSource,
+        sourceDetails: sourceDetails.trim(),
 
-      assignedTo,
+        assignedTo,
 
-      referencePersonName: referencePersonName.trim(),
-      referencePersonPhone: referencePersonPhone.trim(),
-      referencePersonEmail: referencePersonEmail.trim(),
+        referencePersonName: referencePersonName.trim(),
+        referencePersonPhone: referencePersonPhone.trim(),
+        referencePersonEmail: referencePersonEmail.trim(),
 
-      commissionApplicable,
-      commissionPercent,
-      commissionAmount,
+        commissionApplicable,
+        commissionPercent,
+        commissionAmount,
 
-      requirement: requirement.trim(),
-      interestedService,
+        requirement: requirement.trim(),
+        interestedService,
 
-      priority,
+        priority,
 
-      expectedValue,
-      expectedClosingDate,
+        expectedValue,
+        expectedClosingDate,
 
-      notes: notes.trim(),
-      internalNotes: internalNotes.trim(),
+        notes: notes.trim(),
+        internalNotes: internalNotes.trim(),
 
-      nextFollowUpDate,
-      nextFollowUpTime,
-      nextAction: nextAction.trim(),
+        nextFollowUpDate,
+        nextFollowUpTime,
+        nextAction: nextAction.trim(),
 
-      updatedAt: new Date().toISOString(),
-    });
+        updatedAt: new Date().toISOString(),
+      });
 
-    navigate(`/leads/${lead.id}`);
+      navigate(`/leads/${lead.id}`);
+    } catch (err) {
+      console.error("Failed to update lead:", err);
+      setError("Failed to update lead. Please try again.");
+    }
   };
 
   return (

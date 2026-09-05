@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+import { getActivityLogs, type ActivityLog } from "../data/activityLogStore";
 
 import {
   getActiveSalesPersons,
@@ -17,7 +19,8 @@ type SettingsSection =
   | "payment"
   | "notifications"
   | "preferences"
-  | "data";
+  | "data"
+  | "activity";
 
 type BusinessSettings = {
   businessName: string;
@@ -162,6 +165,14 @@ export default function Settings() {
 
   const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
 
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [activitySearch, setActivitySearch] = useState("");
+  const [activityUserFilter, setActivityUserFilter] = useState("All Users");
+  const [activityModuleFilter, setActivityModuleFilter] =
+    useState("All Modules");
+  const [activityActionFilter, setActivityActionFilter] =
+    useState("All Actions");
+
   const [newPaymentMode, setNewPaymentMode] = useState("");
 
   const [showSalesPersonForm, setShowSalesPersonForm] = useState(false);
@@ -185,6 +196,16 @@ export default function Settings() {
      Load active sales persons
   -------------------------------- */
 
+  const refreshActivityLogs = async () => {
+    try {
+      const logs = await getActivityLogs();
+      setActivityLogs(logs);
+    } catch (error) {
+      console.error("Failed to load activity logs:", error);
+      setActivityLogs([]);
+    }
+  };
+
   const refreshSalesPersons = async () => {
     try {
       const persons = await getActiveSalesPersons();
@@ -197,6 +218,7 @@ export default function Settings() {
 
   useEffect(() => {
     refreshSalesPersons();
+    refreshActivityLogs();
   }, []);
 
   /* --------------------------------
@@ -406,6 +428,59 @@ export default function Settings() {
     });
   };
 
+  const activityUsers = useMemo(() => {
+    const users = activityLogs
+      .map((log) => log.user_name || log.user_email || "Unknown User")
+      .filter(Boolean);
+
+    return Array.from(new Set(users));
+  }, [activityLogs]);
+
+  const activityModules = useMemo(
+    () => Array.from(new Set(activityLogs.map((log) => log.module))),
+    [activityLogs],
+  );
+
+  const activityActions = useMemo(
+    () => Array.from(new Set(activityLogs.map((log) => log.action))),
+    [activityLogs],
+  );
+
+  const filteredActivityLogs = useMemo(() => {
+    const search = activitySearch.trim().toLowerCase();
+
+    return activityLogs.filter((log) => {
+      const user = log.user_name || log.user_email || "Unknown User";
+
+      const matchesSearch =
+        !search ||
+        user.toLowerCase().includes(search) ||
+        (log.user_email || "").toLowerCase().includes(search) ||
+        (log.description || "").toLowerCase().includes(search) ||
+        (log.record_id || "").toLowerCase().includes(search) ||
+        (log.record_name || "").toLowerCase().includes(search);
+
+      const matchesUser =
+        activityUserFilter === "All Users" || user === activityUserFilter;
+
+      const matchesModule =
+        activityModuleFilter === "All Modules" ||
+        log.module === activityModuleFilter;
+
+      const matchesAction =
+        activityActionFilter === "All Actions" ||
+        log.action === activityActionFilter;
+
+      return matchesSearch && matchesUser && matchesModule && matchesAction;
+    });
+  }, [
+    activityLogs,
+    activitySearch,
+    activityUserFilter,
+    activityModuleFilter,
+    activityActionFilter,
+  ]);
+
   const sections: {
     key: SettingsSection;
     label: string;
@@ -453,6 +528,12 @@ export default function Settings() {
       label: "Preferences",
       icon: "🌐",
       description: "Language, currency and date format",
+    },
+    {
+      key: "activity",
+      label: "Activity History",
+      icon: "🕘",
+      description: "Track CRM user activities",
     },
     {
       key: "data",
@@ -1240,6 +1321,220 @@ export default function Settings() {
               </div>
 
               <SaveButton onClick={savePreferences} />
+            </section>
+          )}
+
+          {/* ACTIVITY HISTORY */}
+          {activeSection === "activity" && (
+            <section className="p-5 md:p-6">
+              <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
+                <SectionHeader
+                  title="Activity History"
+                  description="Track important CRM activities performed by logged-in users."
+                  accent="blue"
+                />
+
+                <button
+                  type="button"
+                  onClick={refreshActivityLogs}
+                  className="shrink-0 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  ↻ Refresh
+                </button>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <input
+                  value={activitySearch}
+                  onChange={(e) => setActivitySearch(e.target.value)}
+                  placeholder="Search activity..."
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
+                />
+
+                <select
+                  value={activityUserFilter}
+                  onChange={(e) => setActivityUserFilter(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
+                >
+                  <option>All Users</option>
+                  {activityUsers.map((user) => (
+                    <option key={user} value={user}>
+                      {user}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={activityModuleFilter}
+                  onChange={(e) => setActivityModuleFilter(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
+                >
+                  <option>All Modules</option>
+                  {activityModules.map((module) => (
+                    <option key={module} value={module}>
+                      {module}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={activityActionFilter}
+                  onChange={(e) => setActivityActionFilter(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
+                >
+                  <option>All Actions</option>
+                  {activityActions.map((action) => (
+                    <option key={action} value={action}>
+                      {action}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="mt-5 flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-slate-900">
+                    CRM Activity Log
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {filteredActivityLogs.length} activity
+                    {filteredActivityLogs.length === 1 ? "" : "ies"} found.
+                  </p>
+                </div>
+
+                {(activitySearch ||
+                  activityUserFilter !== "All Users" ||
+                  activityModuleFilter !== "All Modules" ||
+                  activityActionFilter !== "All Actions") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActivitySearch("");
+                      setActivityUserFilter("All Users");
+                      setActivityModuleFilter("All Modules");
+                      setActivityActionFilter("All Actions");
+                    }}
+                    className="text-xs font-semibold text-green-700 hover:text-green-800"
+                  >
+                    Clear Filters
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200">
+                <table className="min-w-[950px] w-full text-sm">
+                  <thead className="bg-[#F4F7FA]">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                        Date & Time
+                      </th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                        User
+                      </th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                        Activity
+                      </th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                        Module
+                      </th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                        Record
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {filteredActivityLogs.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          className="px-4 py-12 text-center text-slate-500"
+                        >
+                          <div className="text-2xl">🕘</div>
+                          <div className="mt-2 font-medium text-slate-700">
+                            No activity found
+                          </div>
+                          <div className="mt-1 text-xs text-slate-400">
+                            Activity will appear here when users perform CRM
+                            actions.
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredActivityLogs.map((log) => {
+                        const user =
+                          log.user_name || log.user_email || "Unknown User";
+
+                        return (
+                          <tr
+                            key={log.id}
+                            className="border-t border-slate-100 hover:bg-slate-50/60"
+                          >
+                            <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                              <div className="font-medium text-slate-700">
+                                {new Date(log.created_at).toLocaleDateString(
+                                  "en-IN",
+                                  {
+                                    day: "2-digit",
+                                    month: "short",
+                                    year: "numeric",
+                                  },
+                                )}
+                              </div>
+                              <div className="mt-0.5 text-xs text-slate-400">
+                                {new Date(log.created_at).toLocaleTimeString(
+                                  "en-IN",
+                                  {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  },
+                                )}
+                              </div>
+                            </td>
+
+                            <td className="px-4 py-3">
+                              <div className="font-semibold text-slate-900">
+                                {user}
+                              </div>
+                              {log.user_email && (
+                                <div className="mt-0.5 text-xs text-slate-400">
+                                  {log.user_email}
+                                </div>
+                              )}
+                            </td>
+
+                            <td className="max-w-[360px] px-4 py-3">
+                              <div className="font-medium text-slate-800">
+                                {log.description || log.action}
+                              </div>
+                              <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                {log.action}
+                              </div>
+                            </td>
+
+                            <td className="px-4 py-3">
+                              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                                {log.module}
+                              </span>
+                            </td>
+
+                            <td className="px-4 py-3">
+                              <div className="font-semibold text-slate-700">
+                                {log.record_id || "-"}
+                              </div>
+                              {log.record_name && (
+                                <div className="mt-0.5 max-w-[220px] truncate text-xs text-slate-400">
+                                  {log.record_name}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </section>
           )}
 

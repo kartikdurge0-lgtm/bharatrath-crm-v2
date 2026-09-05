@@ -54,21 +54,39 @@ export default function Dashboard() {
      Load CRM data
   -------------------------------- */
   useEffect(() => {
-    const loadDashboardData = () => {
-      setClients(getClients());
-      setFollowUps(getFollowUps());
+    let mounted = true;
 
-      const savedRenewals = localStorage.getItem("crm-renewals");
+    const loadDashboardData = async () => {
+      try {
+        const [clientData, followUpData] = await Promise.all([
+          getClients(),
+          getFollowUps(),
+        ]);
 
-      if (savedRenewals) {
-        try {
-          const parsed: Renewal[] = JSON.parse(savedRenewals);
+        if (!mounted) return;
 
-          if (Array.isArray(parsed)) {
-            setRenewals(parsed);
+        setClients(clientData);
+        setFollowUps(followUpData);
+
+        const savedRenewals = localStorage.getItem("crm-renewals");
+
+        if (savedRenewals) {
+          try {
+            const parsed: Renewal[] = JSON.parse(savedRenewals);
+
+            if (Array.isArray(parsed)) {
+              setRenewals(parsed);
+            }
+          } catch {
+            setRenewals(defaultRenewals);
           }
-        } catch {
-          setRenewals(defaultRenewals);
+        }
+      } catch (error) {
+        console.error("Failed to load dashboard data:", error);
+
+        if (mounted) {
+          setClients([]);
+          setFollowUps([]);
         }
       }
     };
@@ -78,6 +96,7 @@ export default function Dashboard() {
     window.addEventListener("focus", loadDashboardData);
 
     return () => {
+      mounted = false;
       window.removeEventListener("focus", loadDashboardData);
     };
   }, []);

@@ -5,6 +5,7 @@ import {
   addQuotation,
   calculateQuotationTotals,
   generateQuotationId,
+  getQuotations,
   type Quotation,
   type QuotationItem,
   type QuotationStatus,
@@ -131,11 +132,59 @@ export default function AddQuotation() {
 
   const clients = useMemo<Client[]>(() => getClients(), []);
 
-  const leads = useMemo<Lead[]>(() => getLeads(), []);
-
   const services = useMemo<Service[]>(() => getServices(), []);
 
+  const [leads, setLeads] = useState<Lead[]>([]);
+
+  const [selectedInitialLead, setSelectedInitialLead] = useState<Lead | null>(
+    null,
+  );
+
   const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
+
+  const [loadingLeads, setLoadingLeads] = useState(true);
+
+  /* -------------------------------------------------------
+     Load Leads From Supabase
+  ------------------------------------------------------- */
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadLeads() {
+      try {
+        setLoadingLeads(true);
+
+        const data = await getLeads();
+
+        if (!mounted) {
+          return;
+        }
+
+        setLeads(data);
+      } catch (error) {
+        console.error("Failed to load leads:", error);
+
+        if (mounted) {
+          setLeads([]);
+        }
+      } finally {
+        if (mounted) {
+          setLoadingLeads(false);
+        }
+      }
+    }
+
+    loadLeads();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  /* -------------------------------------------------------
+     Load Sales Persons
+  ------------------------------------------------------- */
 
   useEffect(() => {
     let mounted = true;
@@ -175,7 +224,40 @@ export default function AddQuotation() {
 
   const initialLeadId = searchParams.get("leadId") || "";
 
-  const initialLead = initialLeadId ? getLead(initialLeadId) : null;
+  /* -------------------------------------------------------
+     Load Initial Lead
+  ------------------------------------------------------- */
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadInitialLead() {
+      if (!initialLeadId) {
+        setSelectedInitialLead(null);
+        return;
+      }
+
+      try {
+        const lead = await getLead(initialLeadId);
+
+        if (mounted) {
+          setSelectedInitialLead(lead);
+        }
+      } catch (error) {
+        console.error("Failed to load initial lead:", error);
+
+        if (mounted) {
+          setSelectedInitialLead(null);
+        }
+      }
+    }
+
+    loadInitialLead();
+
+    return () => {
+      mounted = false;
+    };
+  }, [initialLeadId]);
 
   /* -------------------------------------------------------
      Form State
@@ -183,7 +265,7 @@ export default function AddQuotation() {
 
   const [clientId, setClientId] = useState("");
 
-  const [leadId, setLeadId] = useState(initialLead?.id || "");
+  const [leadId, setLeadId] = useState(initialLeadId);
 
   const [salesPersonId, setSalesPersonId] = useState("");
 
@@ -216,6 +298,89 @@ export default function AddQuotation() {
   const [error, setError] = useState("");
 
   /* =======================================================
+     LAST QUOTATION PREFILL
+  ======================================================= */
+
+  useEffect(() => {
+    /*
+     * For a new quotation, reuse the latest quotation's
+     * reusable commercial/details fields.
+     *
+     * Client, Lead, Sales Person, Services and quotation
+     * number are intentionally NOT copied.
+     */
+
+    try {
+      const quotations = getQuotations();
+
+      if (!quotations.length) {
+        return;
+      }
+
+      const latestQuotation = [...quotations].sort((a, b) => {
+        const dateA = new Date(
+          a.updatedAt || a.createdAt || a.quotationDate || "",
+        ).getTime();
+
+        const dateB = new Date(
+          b.updatedAt || b.createdAt || b.quotationDate || "",
+        ).getTime();
+
+        return dateB - dateA;
+      })[0];
+
+      if (!latestQuotation) {
+        return;
+      }
+
+      if (latestQuotation.scopeOfWork) {
+        setScopeOfWork(latestQuotation.scopeOfWork);
+      }
+
+      if (latestQuotation.implementationProcess) {
+        setImplementationProcess(latestQuotation.implementationProcess);
+      }
+
+      if (latestQuotation.supportTraining) {
+        setSupportTraining(latestQuotation.supportTraining);
+      }
+
+      if (latestQuotation.remarks) {
+        setRemarks(latestQuotation.remarks);
+      }
+
+      if (latestQuotation.termsConditions) {
+        setTermsConditions(latestQuotation.termsConditions);
+      }
+
+      if (typeof latestQuotation.tax === "number") {
+        setTax(latestQuotation.tax);
+      }
+    } catch (error) {
+      console.error("Failed to load last quotation defaults:", error);
+    }
+  }, []);
+
+  /* =======================================================
+     INITIAL LEAD CLIENT PREFILL
+  ======================================================= */
+
+  useEffect(() => {
+    if (!selectedInitialLead?.convertedClientId) {
+      return;
+    }
+
+    const convertedClient = clients.find(
+      (client) =>
+        String(client.id) === String(selectedInitialLead.convertedClientId),
+    );
+
+    if (convertedClient) {
+      setClientId(String(convertedClient.id));
+    }
+  }, [selectedInitialLead, clients]);
+
+  /* =======================================================
      SELECTED RECORDS
   ======================================================= */
 
@@ -243,32 +408,36 @@ export default function AddQuotation() {
      LEAD CHANGE
   ======================================================= */
 
-  function handleLeadChange(value: string) {
+  async function handleLeadChange(value: string) {
     setLeadId(value);
 
     if (!value) {
       return;
     }
 
-    const lead = getLead(value);
+    try {
+      const lead = await getLead(value);
 
-    if (!lead) {
-      return;
-    }
-
-    /*
-     * If the lead has already been converted,
-     * automatically select the linked client.
-     */
-
-    if (lead.convertedClientId) {
-      const convertedClient = clients.find(
-        (client) => String(client.id) === String(lead.convertedClientId),
-      );
-
-      if (convertedClient) {
-        setClientId(convertedClient.id);
+      if (!lead) {
+        return;
       }
+
+      /*
+       * If the lead has already been converted,
+       * automatically select the linked client.
+       */
+
+      if (lead.convertedClientId) {
+        const convertedClient = clients.find(
+          (client) => String(client.id) === String(lead.convertedClientId),
+        );
+
+        if (convertedClient) {
+          setClientId(String(convertedClient.id));
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load selected lead:", error);
     }
   }
 
@@ -591,7 +760,11 @@ export default function AddQuotation() {
                 onChange={(event) => handleLeadChange(event.target.value)}
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
               >
-                <option value="">No Lead / Direct Client</option>
+                <option value="">
+                  {loadingLeads
+                    ? "Loading Leads..."
+                    : "No Lead / Direct Client"}
+                </option>
 
                 {leads.map((lead) => (
                   <option key={lead.id} value={lead.id}>
@@ -731,13 +904,21 @@ export default function AddQuotation() {
               <thead>
                 <tr className="bg-green-600 text-white">
                   <th className="px-3 py-3 text-center text-sm">#</th>
+
                   <th className="px-3 py-3 text-left text-sm">Service</th>
+
                   <th className="px-3 py-3 text-left text-sm">Description</th>
+
                   <th className="px-3 py-3 text-left text-sm">SAC</th>
+
                   <th className="px-3 py-3 text-right text-sm">Basic Cost</th>
+
                   <th className="px-3 py-3 text-right text-sm">Discount</th>
+
                   <th className="px-3 py-3 text-right text-sm">Final Cost</th>
+
                   <th className="px-3 py-3 text-left text-sm">Frequency</th>
+
                   <th className="px-3 py-3 text-center text-sm">Action</th>
                 </tr>
               </thead>
@@ -854,6 +1035,7 @@ export default function AddQuotation() {
             <div className="w-full max-w-sm">
               <div className="flex justify-between border-b py-3 text-sm">
                 <span>Subtotal</span>
+
                 <span className="font-medium">{currency(totals.subtotal)}</span>
               </div>
 
@@ -880,6 +1062,7 @@ export default function AddQuotation() {
 
               <div className="flex justify-between py-4 text-lg font-bold text-gray-900">
                 <span>Grand Total</span>
+
                 <span>{currency(totals.grandTotal)}</span>
               </div>
             </div>

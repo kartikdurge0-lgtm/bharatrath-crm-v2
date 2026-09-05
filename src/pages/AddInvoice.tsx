@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   createInvoice,
   calculateInvoiceTotals,
+  getInvoices,
   type InvoiceItem,
   type InvoiceStatus,
 } from "../data/invoiceStore";
@@ -85,7 +86,9 @@ export default function AddInvoice() {
 
   const settingsSerial = Math.max(1, Number(invoiceSettings.nextNumber) || 1);
 
-  const defaultInvoiceNumber = `${settingsPrefix}${String(settingsSerial).padStart(3, "0")}`;
+  const defaultInvoiceNumber = `${settingsPrefix}${String(
+    settingsSerial,
+  ).padStart(3, "0")}`;
 
   /* -------------------------------------------------------
      QUOTATION PREFILL
@@ -132,6 +135,11 @@ export default function AddInvoice() {
 
   const [dueDate, setDueDate] = useState<string>("");
 
+  /*
+   * New invoices can only be created as Draft or Sent.
+   * Payment-related statuses are controlled by payment logic.
+   */
+
   const [status, setStatus] = useState<InvoiceStatus>("Draft");
 
   const [items, setItems] = useState<InvoiceItem[]>(
@@ -144,7 +152,37 @@ export default function AddInvoice() {
       : Number(invoiceSettings.defaultGst) || 18,
   );
 
-  const [notes, setNotes] = useState<string>(invoiceSettings.notes || "");
+  /* -------------------------------------------------------
+     LAST INVOICE NOTES PREFILL
+  ------------------------------------------------------- */
+
+  const [notes, setNotes] = useState<string>(() => {
+    try {
+      const invoices = getInvoices();
+
+      if (!invoices.length) {
+        return invoiceSettings.notes || "";
+      }
+
+      const latestInvoice = [...invoices].sort((a, b) => {
+        const dateA = new Date(
+          a.updatedAt || a.createdAt || a.invoiceDate || "",
+        ).getTime();
+
+        const dateB = new Date(
+          b.updatedAt || b.createdAt || b.invoiceDate || "",
+        ).getTime();
+
+        return dateB - dateA;
+      })[0];
+
+      return latestInvoice?.notes || invoiceSettings.notes || "";
+    } catch (error) {
+      console.error("Failed to load last invoice notes:", error);
+
+      return invoiceSettings.notes || "";
+    }
+  });
 
   const [error, setError] = useState<string>("");
 
@@ -692,15 +730,11 @@ export default function AddInvoice() {
                 <option value="Draft">Draft</option>
 
                 <option value="Sent">Sent</option>
-
-                <option value="Partially Paid">Partially Paid</option>
-
-                <option value="Paid">Paid</option>
-
-                <option value="Overdue">Overdue</option>
-
-                <option value="Cancelled">Cancelled</option>
               </select>
+
+              <p className="mt-1 text-xs text-gray-400">
+                Payment status updates automatically when payments are recorded.
+              </p>
             </div>
           </div>
         </section>

@@ -76,20 +76,19 @@ export default function Renewals() {
   }, []);
 
   /* --------------------------------
-     Calculate status from date
+     Calculate renewal status
   -------------------------------- */
 
   const getCalculatedStatus = (renewal: Renewal): Renewal["status"] => {
+    // Completed should never become Overdue again.
     if (renewal.status === "Completed") {
       return "Completed";
     }
 
     const today = new Date();
-
     today.setHours(0, 0, 0, 0);
 
     const renewalDate = new Date(renewal.renewalDate);
-
     renewalDate.setHours(0, 0, 0, 0);
 
     const difference = Math.ceil(
@@ -108,7 +107,7 @@ export default function Renewals() {
   };
 
   /* --------------------------------
-     Keep status updated
+     Keep renewal status updated
   -------------------------------- */
 
   useEffect(() => {
@@ -151,22 +150,56 @@ export default function Renewals() {
   );
 
   /* --------------------------------
-     Search + Filter
+     Search + Filter + Sort
+     Global CRM rule:
+     Filter → Sort → Pagination
+
+     Latest created entry first.
   -------------------------------- */
 
   const filteredRenewals = useMemo(() => {
     const searchText = search.toLowerCase().trim();
 
-    return renewals.filter((renewal) => {
+    const filtered = renewals.filter((renewal) => {
       const matchesSearch =
         renewal.clientName.toLowerCase().includes(searchText) ||
         renewal.clientId.toLowerCase().includes(searchText) ||
-        renewal.service.toLowerCase().includes(searchText);
+        renewal.service.toLowerCase().includes(searchText) ||
+        renewal.id.toLowerCase().includes(searchText);
 
       const matchesStatus =
         statusFilter === "all" || renewal.status.toLowerCase() === statusFilter;
 
       return matchesSearch && matchesStatus;
+    });
+
+    return [...filtered].sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime();
+      const dateB = new Date(b.createdAt).getTime();
+
+      const validA = Number.isFinite(dateA);
+      const validB = Number.isFinite(dateB);
+
+      // Latest createdAt first.
+      if (validA && validB && dateA !== dateB) {
+        return dateB - dateA;
+      }
+
+      // Valid createdAt comes before invalid createdAt.
+      if (validA && !validB) {
+        return -1;
+      }
+
+      if (!validA && validB) {
+        return 1;
+      }
+
+      // Safe fallback: highest renewal number first.
+      const numberA = Number(a.id.match(/(\d+)$/)?.[1] ?? 0);
+
+      const numberB = Number(b.id.match(/(\d+)$/)?.[1] ?? 0);
+
+      return numberB - numberA;
     });
   }, [renewals, search, statusFilter]);
 
@@ -205,9 +238,17 @@ export default function Renewals() {
   -------------------------------- */
 
   const formatDate = (date: string) => {
-    if (!date) return "-";
+    if (!date) {
+      return "-";
+    }
 
-    return new Date(date).toLocaleDateString("en-IN", {
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return "-";
+    }
+
+    return parsedDate.toLocaleDateString("en-IN", {
       day: "2-digit",
       month: "short",
       year: "numeric",
@@ -220,7 +261,8 @@ export default function Renewals() {
 
   const summaryCardClass = (filter: string, accent: string, ring: string) => {
     return [
-      "rounded-xl border border-slate-200 border-l-4 bg-white p-4 text-left shadow-sm transition",
+      "w-full rounded-xl border border-slate-200 border-l-4",
+      "bg-white p-4 text-left shadow-sm transition",
       "hover:shadow-md",
       accent,
       statusFilter === filter ? `ring-2 ${ring}` : "",
@@ -228,16 +270,16 @@ export default function Renewals() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl">
+    <div className="mx-auto w-full max-w-[1800px] min-w-0">
       {/* --------------------------------
           Header
       -------------------------------- */}
 
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
+      <div className="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-2xl font-bold text-slate-900">Renewals</h2>
 
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Track upcoming and overdue client service renewals
           </p>
         </div>
@@ -245,7 +287,7 @@ export default function Renewals() {
         <button
           type="button"
           onClick={() => navigate("/add-renewal")}
-          className="shrink-0 rounded-lg bg-[#16A34A] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#15803D]"
+          className="w-full shrink-0 rounded-lg bg-[#16A34A] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#15803D] sm:w-auto"
         >
           + Add Renewal
         </button>
@@ -255,7 +297,7 @@ export default function Renewals() {
           Summary Cards
       -------------------------------- */}
 
-      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className="mb-4 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {/* Upcoming */}
 
         <button
@@ -267,10 +309,12 @@ export default function Renewals() {
             "ring-green-100",
           )}
         >
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-[#334155]">Upcoming</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="min-w-0 text-sm font-medium text-[#334155]">
+              Upcoming
+            </p>
 
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-green-50 text-sm">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-green-50 text-sm">
               🔄
             </span>
           </div>
@@ -293,10 +337,12 @@ export default function Renewals() {
             "ring-amber-100",
           )}
         >
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-[#334155]">Due Soon</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="min-w-0 text-sm font-medium text-[#334155]">
+              Due Soon
+            </p>
 
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50 text-sm">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-sm">
               ⏰
             </span>
           </div>
@@ -319,10 +365,12 @@ export default function Renewals() {
             "ring-orange-100",
           )}
         >
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-[#334155]">Overdue</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="min-w-0 text-sm font-medium text-[#334155]">
+              Overdue
+            </p>
 
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-50 text-sm">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-sm">
               ⚠️
             </span>
           </div>
@@ -339,20 +387,22 @@ export default function Renewals() {
           Search + Filter
       -------------------------------- */}
 
-      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search client, service or client ID..."
-            className="flex-1 rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#16A34A] focus:ring-2 focus:ring-green-100"
-          />
+      <div className="mb-4 min-w-0 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+        <div className="flex min-w-0 flex-col gap-3 md:flex-row">
+          <div className="min-w-0 flex-1">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search client, service or client ID..."
+              className="w-full rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#16A34A] focus:ring-2 focus:ring-green-100"
+            />
+          </div>
 
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#16A34A] focus:ring-2 focus:ring-green-100"
+            className="w-full shrink-0 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#16A34A] focus:ring-2 focus:ring-green-100 md:w-auto md:min-w-[170px]"
           >
             <option value="all">All Status</option>
             <option value="upcoming">Upcoming</option>
@@ -367,34 +417,34 @@ export default function Renewals() {
           Table
       -------------------------------- */}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {paginatedRenewals.length > 0 ? (
           <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
+            <div className="w-full overflow-x-auto">
+              <table className="w-full min-w-[760px]">
                 <thead className="border-b border-slate-200 bg-[#F4F7FA]">
                   <tr>
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="whitespace-nowrap px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Client
                     </th>
 
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="whitespace-nowrap px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Service
                     </th>
 
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="whitespace-nowrap px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Renewal Date
                     </th>
 
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="whitespace-nowrap px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Amount
                     </th>
 
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="whitespace-nowrap px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Status
                     </th>
 
-                    <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="whitespace-nowrap px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Action
                     </th>
                   </tr>
@@ -405,8 +455,11 @@ export default function Renewals() {
                     <tr key={renewal.id} className="hover:bg-slate-50">
                       {/* Client */}
 
-                      <td className="px-5 py-3.5">
-                        <p className="text-sm font-semibold text-slate-900">
+                      <td className="max-w-[320px] px-5 py-3.5">
+                        <p
+                          title={renewal.clientName}
+                          className="truncate text-sm font-semibold text-slate-900"
+                        >
                           {renewal.clientName}
                         </p>
 
@@ -417,19 +470,22 @@ export default function Renewals() {
 
                       {/* Service */}
 
-                      <td className="px-5 py-3.5 text-sm text-slate-700">
+                      <td
+                        title={renewal.service}
+                        className="max-w-[260px] truncate px-5 py-3.5 text-sm text-slate-700"
+                      >
                         {renewal.service}
                       </td>
 
                       {/* Date */}
 
-                      <td className="px-5 py-3.5 text-sm text-slate-700">
+                      <td className="whitespace-nowrap px-5 py-3.5 text-sm text-slate-700">
                         {formatDate(renewal.renewalDate)}
                       </td>
 
                       {/* Amount */}
 
-                      <td className="px-5 py-3.5 text-sm font-semibold text-slate-900">
+                      <td className="whitespace-nowrap px-5 py-3.5 text-sm font-semibold text-slate-900">
                         ₹{renewal.amount.toLocaleString("en-IN")}
                       </td>
 
@@ -437,7 +493,7 @@ export default function Renewals() {
 
                       <td className="px-5 py-3.5">
                         <span
-                          className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ${
+                          className={`inline-flex whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold ${
                             renewal.status === "Upcoming"
                               ? "border border-green-100 bg-green-50 text-green-700"
                               : renewal.status === "Due Soon"
@@ -457,7 +513,7 @@ export default function Renewals() {
                         <button
                           type="button"
                           onClick={() => navigate(`/renewals/${renewal.id}`)}
-                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                         >
                           View
                         </button>

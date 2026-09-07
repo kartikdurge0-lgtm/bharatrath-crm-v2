@@ -1,6 +1,10 @@
 import { supabase } from "../lib/supabase";
 import { getClientById } from "./clientStore";
 
+/* =========================================================
+   TYPES
+========================================================= */
+
 export type FollowUpStatus = "Pending" | "Completed";
 
 export type FollowUpPriority = "High" | "Medium" | "Low";
@@ -47,8 +51,13 @@ export type FollowUp = {
   createdAt: string;
 };
 
+/* =========================================================
+   DATABASE ROW
+========================================================= */
+
 type FollowUpRow = {
   id: number;
+
   lead_id: number | null;
   client_id: number | null;
   assigned_to_id: number | null;
@@ -75,11 +84,17 @@ type FollowUpRow = {
   completed_at: string | null;
 };
 
+/* =========================================================
+   RELATED DATABASE ROWS
+========================================================= */
+
 type ClientRow = {
   id: number;
+  crm_client_id: string | null;
   company_name: string;
   contact_person: string | null;
   phone: string | null;
+  is_archived?: boolean | null;
 };
 
 type LeadRow = {
@@ -135,7 +150,7 @@ async function logActivity({
 }
 
 /* =========================================================
-   DISPLAY ID HELPERS
+   ID HELPERS
 ========================================================= */
 
 function getDatabaseId(
@@ -169,39 +184,56 @@ function getLeadDatabaseId(displayId: string | undefined): number | null {
   return getDatabaseId(displayId, "LEAD");
 }
 
+function getClientDisplayDatabaseId(
+  displayId: string | undefined,
+): number | null {
+  return getDatabaseId(displayId, "CL");
+}
+
 function getSalesPersonDatabaseId(displayId: string): number | null {
   return getDatabaseId(displayId, "SP");
 }
 
 /* =========================================================
+   NORMALIZERS
+========================================================= */
+
+function normalizeStatus(value: string): FollowUpStatus {
+  return value === "Completed" ? "Completed" : "Pending";
+}
+
+function normalizePriority(value: string): FollowUpPriority {
+  if (value === "High" || value === "Low") {
+    return value;
+  }
+
+  return "Medium";
+}
+
+/* =========================================================
    CLIENT RESOLUTION
    IMPORTANT:
-   Local CL-001 / CL-002 etc. are NOT Supabase IDs.
+   CL-001 etc. are CRM IDs.
+   Supabase clients.id is a separate numeric ID.
 ========================================================= */
 
 async function resolveClientDatabaseId(
   clientDisplayId: string | undefined,
   clientName?: string,
 ): Promise<number | null> {
-  /*
-   * 1. First try the company name.
-   *
-   * We ONLY consider active/non-archived clients.
-   * This avoids duplicate archived records.
-   */
-  if (clientName?.trim()) {
-    const cleanName = clientName.trim();
+  /* -------------------------------------------------------
+     1. BEST METHOD — crm_client_id
+  ------------------------------------------------------- */
 
+  if (clientDisplayId?.trim()) {
     const { data, error } = await supabase
       .from("clients")
-      .select("id, company_name")
-      .eq("company_name", cleanName)
-      .eq("is_archived", false)
-      .limit(1)
+      .select("id")
+      .eq("crm_client_id", clientDisplayId.trim())
       .maybeSingle();
 
     if (error) {
-      console.error("Client company-name lookup error:", error);
+      console.error("Client CRM ID lookup error:", error);
     }
 
     if (data) {
@@ -209,12 +241,81 @@ async function resolveClientDatabaseId(
     }
   }
 
-  /*
-   * 2. If company name didn't work, try the local
-   * client display ID only when that numeric ID
-   * actually exists in Supabase.
-   */
-  const numericId = getDatabaseId(clientDisplayId, "CL");
+  /* -------------------------------------------------------
+     2. LOCAL CLIENT → COMPANY NAME
+     Only as legacy fallback.
+  ------------------------------------------------------- */
+
+  if (clientDisplayId) {
+    const localClient = getClientById(clientDisplayId);
+
+    if (localClient?.company?.trim()) {
+      const cleanName = localClient.company.trim();
+
+      const { data, error } = await supabase
+        .from("clients")
+        .select("id, crm_client_id, company_name")
+        .eq("company_name", cleanName)
+        .eq("is_archived", false)
+        .limit(2);
+
+      if (error) {
+        console.error("Client company fallback error:", error);
+      }
+
+      /*
+       * Only use company fallback when exactly one
+       * active record exists.
+       *
+       * This avoids accidentally connecting a duplicate.
+       */
+      if (data && data.length === 1) {
+        return Number(data[0].id);
+      }
+
+      if (data && data.length > 1) {
+        console.warn(`Multiple active clients found for "${cleanName}".`);
+
+        return null;
+      }
+    }
+  }
+
+  /* -------------------------------------------------------
+     3. Name fallback
+  ------------------------------------------------------- */
+
+  if (clientName?.trim()) {
+    const cleanName = clientName.trim();
+
+    const { data, error } = await supabase
+      .from("clients")
+      .select("id, crm_client_id, company_name")
+      .eq("company_name", cleanName)
+      .eq("is_archived", false)
+      .limit(2);
+
+    if (error) {
+      console.error("Client name lookup error:", error);
+    }
+
+    if (data && data.length === 1) {
+      return Number(data[0].id);
+    }
+
+    if (data && data.length > 1) {
+      console.warn(`Multiple active clients found for "${cleanName}".`);
+
+      return null;
+    }
+  }
+
+  /* -------------------------------------------------------
+     4. Legacy numeric fallback
+     Only if no better mapping exists.
+  ------------------------------------------------------- */
+
+  const numericId = getClientDisplayDatabaseId(clientDisplayId);
 
   if (numericId !== null) {
     const { data, error } = await supabase
@@ -225,42 +326,11 @@ async function resolveClientDatabaseId(
       .maybeSingle();
 
     if (error) {
-      console.error("Client numeric ID lookup error:", error);
+      console.error("Client numeric fallback error:", error);
     }
 
     if (data) {
       return Number(data.id);
-    }
-  }
-
-  /*
-   * 3. Final fallback:
-   * Read the local client using its CL-xxx ID,
-   * then search Supabase using its company name.
-   *
-   * This handles cases such as:
-   * Local CL-004 -> Onyx
-   * Supabase ID 7 -> Onyx
-   */
-  if (clientDisplayId) {
-    const localClient = getClientById(clientDisplayId);
-
-    if (localClient?.company?.trim()) {
-      const { data, error } = await supabase
-        .from("clients")
-        .select("id, company_name")
-        .eq("company_name", localClient.company.trim())
-        .eq("is_archived", false)
-        .limit(1)
-        .maybeSingle();
-
-      if (error) {
-        console.error("Client local-ID fallback lookup error:", error);
-      }
-
-      if (data) {
-        return Number(data.id);
-      }
     }
   }
 
@@ -275,31 +345,10 @@ async function resolveLeadDatabaseId(
   leadDisplayId: string | undefined,
   leadName?: string,
 ): Promise<number | null> {
-  /*
-   * First search by company name.
-   */
-  if (leadName?.trim()) {
-    const cleanName = leadName.trim();
+  /* -------------------------------------------------------
+     1. LEAD-xxx → Supabase numeric ID
+  ------------------------------------------------------- */
 
-    const { data, error } = await supabase
-      .from("leads")
-      .select("id, company_name")
-      .eq("company_name", cleanName)
-      .limit(1)
-      .maybeSingle();
-
-    if (error) {
-      console.error("Lead company-name lookup error:", error);
-    }
-
-    if (data) {
-      return Number(data.id);
-    }
-  }
-
-  /*
-   * Fallback to LEAD-xxx numeric ID.
-   */
   const numericId = getLeadDatabaseId(leadDisplayId);
 
   if (numericId !== null) {
@@ -318,6 +367,32 @@ async function resolveLeadDatabaseId(
     }
   }
 
+  /* -------------------------------------------------------
+     2. Company name fallback
+  ------------------------------------------------------- */
+
+  if (leadName?.trim()) {
+    const cleanName = leadName.trim();
+
+    const { data, error } = await supabase
+      .from("leads")
+      .select("id, company_name")
+      .eq("company_name", cleanName)
+      .limit(2);
+
+    if (error) {
+      console.error("Lead company lookup error:", error);
+    }
+
+    if (data && data.length === 1) {
+      return Number(data[0].id);
+    }
+
+    if (data && data.length > 1) {
+      console.warn(`Multiple leads found for "${cleanName}".`);
+    }
+  }
+
   return null;
 }
 
@@ -329,31 +404,10 @@ async function resolveSalesPersonDatabaseId(
   displayId: string | undefined,
   name?: string,
 ): Promise<number | null> {
-  /*
-   * First try salesperson name.
-   */
-  if (name?.trim()) {
-    const cleanName = name.trim();
+  /* -------------------------------------------------------
+     1. SP-xxx → numeric database ID
+  ------------------------------------------------------- */
 
-    const { data, error } = await supabase
-      .from("sales_persons")
-      .select("id, name")
-      .eq("name", cleanName)
-      .limit(1)
-      .maybeSingle();
-
-    if (error) {
-      console.error("Sales person name lookup error:", error);
-    }
-
-    if (data) {
-      return Number(data.id);
-    }
-  }
-
-  /*
-   * Fallback to SP-xxx numeric ID.
-   */
   const numericId = getSalesPersonDatabaseId(displayId || "");
 
   if (numericId !== null) {
@@ -364,7 +418,7 @@ async function resolveSalesPersonDatabaseId(
       .maybeSingle();
 
     if (error) {
-      console.error("Sales person numeric ID lookup error:", error);
+      console.error("Sales person numeric lookup error:", error);
     }
 
     if (data) {
@@ -372,103 +426,150 @@ async function resolveSalesPersonDatabaseId(
     }
   }
 
+  /* -------------------------------------------------------
+     2. Name fallback
+  ------------------------------------------------------- */
+
+  if (name?.trim()) {
+    const cleanName = name.trim();
+
+    const { data, error } = await supabase
+      .from("sales_persons")
+      .select("id, name")
+      .eq("name", cleanName)
+      .limit(2);
+
+    if (error) {
+      console.error("Sales person name lookup error:", error);
+    }
+
+    if (data && data.length === 1) {
+      return Number(data[0].id);
+    }
+  }
+
   return null;
 }
 
 /* =========================================================
-   VALIDATION
+   BATCH LOAD RELATED DATA
+   IMPORTANT:
+   This removes the N+1 query problem.
 ========================================================= */
 
-function normalizeStatus(value: string): FollowUpStatus {
-  return value === "Completed" ? "Completed" : "Pending";
-}
+async function loadRelatedMaps(rows: FollowUpRow[]) {
+  const clientIds = Array.from(
+    new Set(
+      rows
+        .map((row) => row.client_id)
+        .filter((id): id is number => id !== null),
+    ),
+  );
 
-function normalizePriority(value: string): FollowUpPriority {
-  if (value === "High" || value === "Low") {
-    return value;
-  }
+  const leadIds = Array.from(
+    new Set(
+      rows.map((row) => row.lead_id).filter((id): id is number => id !== null),
+    ),
+  );
 
-  return "Medium";
-}
+  const salesPersonIds = Array.from(
+    new Set(
+      rows
+        .map((row) => row.assigned_to_id)
+        .filter((id): id is number => id !== null),
+    ),
+  );
 
-/* =========================================================
-   RELATED RECORD HELPERS
-========================================================= */
+  const clientMap = new Map<number, ClientRow>();
+  const leadMap = new Map<number, LeadRow>();
+  const salesPersonMap = new Map<number, SalesPersonRow>();
 
-async function getClientInfo(
-  clientId: number | null,
-): Promise<ClientRow | null> {
-  if (clientId === null) {
-    return null;
-  }
+  /*
+   * No IDs means no query needed.
+   */
 
-  const { data, error } = await supabase
-    .from("clients")
-    .select("id, company_name, contact_person, phone")
-    .eq("id", clientId)
-    .maybeSingle();
+  const clientPromise =
+    clientIds.length > 0
+      ? supabase
+          .from("clients")
+          .select(
+            "id, crm_client_id, company_name, contact_person, phone, is_archived",
+          )
+          .in("id", clientIds)
+      : Promise.resolve({ data: [], error: null });
 
-  if (error) {
-    console.error("Follow-up client lookup error:", error);
+  const leadPromise =
+    leadIds.length > 0
+      ? supabase
+          .from("leads")
+          .select("id, company_name, contact_person, phone")
+          .in("id", leadIds)
+      : Promise.resolve({ data: [], error: null });
 
-    return null;
-  }
+  const salesPromise =
+    salesPersonIds.length > 0
+      ? supabase
+          .from("sales_persons")
+          .select("id, name")
+          .in("id", salesPersonIds)
+      : Promise.resolve({ data: [], error: null });
 
-  return data as ClientRow | null;
-}
-
-async function getLeadInfo(leadId: number | null): Promise<LeadRow | null> {
-  if (leadId === null) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("leads")
-    .select("id, company_name, contact_person, phone")
-    .eq("id", leadId)
-    .maybeSingle();
-
-  if (error) {
-    console.error("Follow-up lead lookup error:", error);
-
-    return null;
-  }
-
-  return data as LeadRow | null;
-}
-
-async function getSalesPersonInfo(
-  salesPersonId: number | null,
-): Promise<SalesPersonRow | null> {
-  if (salesPersonId === null) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("sales_persons")
-    .select("id, name")
-    .eq("id", salesPersonId)
-    .maybeSingle();
-
-  if (error) {
-    console.error("Follow-up sales person lookup error:", error);
-
-    return null;
-  }
-
-  return data as SalesPersonRow | null;
-}
-
-/* =========================================================
-   MAP DATABASE ROW
-========================================================= */
-
-async function mapFollowUp(row: FollowUpRow): Promise<FollowUp> {
-  const [client, lead, salesPerson] = await Promise.all([
-    getClientInfo(row.client_id),
-    getLeadInfo(row.lead_id),
-    getSalesPersonInfo(row.assigned_to_id),
+  const [clientsResult, leadsResult, salesResult] = await Promise.all([
+    clientPromise,
+    leadPromise,
+    salesPromise,
   ]);
+
+  if (clientsResult.error) {
+    console.error("Batch client lookup error:", clientsResult.error);
+  }
+
+  if (leadsResult.error) {
+    console.error("Batch lead lookup error:", leadsResult.error);
+  }
+
+  if (salesResult.error) {
+    console.error("Batch sales person lookup error:", salesResult.error);
+  }
+
+  for (const client of (clientsResult.data ?? []) as ClientRow[]) {
+    clientMap.set(Number(client.id), client);
+  }
+
+  for (const lead of (leadsResult.data ?? []) as LeadRow[]) {
+    leadMap.set(Number(lead.id), lead);
+  }
+
+  for (const person of (salesResult.data ?? []) as SalesPersonRow[]) {
+    salesPersonMap.set(Number(person.id), person);
+  }
+
+  return {
+    clientMap,
+    leadMap,
+    salesPersonMap,
+  };
+}
+
+/* =========================================================
+   MAP SINGLE ROW
+========================================================= */
+
+function mapFollowUpRow(
+  row: FollowUpRow,
+  clientMap: Map<number, ClientRow>,
+  leadMap: Map<number, LeadRow>,
+  salesPersonMap: Map<number, SalesPersonRow>,
+): FollowUp {
+  const client =
+    row.client_id !== null ? clientMap.get(row.client_id) : undefined;
+
+  const lead = row.lead_id !== null ? leadMap.get(row.lead_id) : undefined;
+
+  const salesPerson =
+    row.assigned_to_id !== null
+      ? salesPersonMap.get(row.assigned_to_id)
+      : undefined;
 
   let relatedType: FollowUpRelatedType | undefined;
   let relatedId: string | undefined;
@@ -480,7 +581,14 @@ async function mapFollowUp(row: FollowUpRow): Promise<FollowUp> {
     relatedName = lead?.company_name;
   } else if (row.client_id !== null) {
     relatedType = "Client";
-    relatedId = formatId("CL", row.client_id);
+
+    /*
+     * IMPORTANT:
+     * Prefer CRM client ID.
+     * Do NOT assume CL-xxx equals Supabase ID.
+     */
+    relatedId = client?.crm_client_id || formatId("CL", row.client_id);
+
     relatedName = client?.company_name;
   }
 
@@ -491,7 +599,9 @@ async function mapFollowUp(row: FollowUpRow): Promise<FollowUp> {
     relatedId,
     relatedName,
 
-    clientId: row.client_id !== null ? formatId("CL", row.client_id) : "",
+    clientId:
+      client?.crm_client_id ||
+      (row.client_id !== null ? formatId("CL", row.client_id) : ""),
 
     clientName: client?.company_name || lead?.company_name || relatedName || "",
 
@@ -515,6 +625,10 @@ async function mapFollowUp(row: FollowUpRow): Promise<FollowUp> {
 
     nextFollowUpDate: row.next_follow_up_date ?? "",
 
+    /*
+     * Current follow_ups schema does not expose
+     * next_follow_up_time.
+     */
     nextFollowUpTime: "",
 
     nextAction: row.next_action ?? "",
@@ -531,6 +645,22 @@ async function mapFollowUp(row: FollowUpRow): Promise<FollowUp> {
 
     createdAt: row.created_at,
   };
+}
+
+/* =========================================================
+   MAP MANY
+========================================================= */
+
+async function mapFollowUps(rows: FollowUpRow[]): Promise<FollowUp[]> {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const { clientMap, leadMap, salesPersonMap } = await loadRelatedMaps(rows);
+
+  return rows.map((row) =>
+    mapFollowUpRow(row, clientMap, leadMap, salesPersonMap),
+  );
 }
 
 /* =========================================================
@@ -554,7 +684,7 @@ export async function getFollowUps(): Promise<FollowUp[]> {
     return [];
   }
 
-  return Promise.all(((data ?? []) as FollowUpRow[]).map(mapFollowUp));
+  return mapFollowUps((data ?? []) as FollowUpRow[]);
 }
 
 /* =========================================================
@@ -584,7 +714,9 @@ export async function getFollowUp(id: string): Promise<FollowUp | null> {
     return null;
   }
 
-  return mapFollowUp(data as FollowUpRow);
+  const result = await mapFollowUps([data as FollowUpRow]);
+
+  return result[0] || null;
 }
 
 /* =========================================================
@@ -615,17 +747,38 @@ export async function generateFollowUpId(): Promise<string> {
 export async function addFollowUp(
   followUp: FollowUp,
 ): Promise<FollowUp | null> {
-  /*
-   * Resolve actual Supabase client ID.
-   */
+  /* -------------------------------------------------------
+     QUOTATION / RENEWAL
+     
+     Current database structure only has:
+     lead_id
+     client_id
+     
+     Therefore do not silently create orphan records.
+  ------------------------------------------------------- */
+
+  if (
+    followUp.relatedType === "Quotation" ||
+    followUp.relatedType === "Renewal"
+  ) {
+    throw new Error(
+      `${followUp.relatedType} follow-ups are not yet supported by the current database structure.`,
+    );
+  }
+
+  /* -------------------------------------------------------
+     RESOLVE CLIENT
+  ------------------------------------------------------- */
+
   const clientId =
     followUp.relatedType === "Client"
       ? await resolveClientDatabaseId(followUp.clientId, followUp.clientName)
       : null;
 
-  /*
-   * Resolve actual Supabase lead ID.
-   */
+  /* -------------------------------------------------------
+     RESOLVE LEAD
+  ------------------------------------------------------- */
+
   const leadId =
     followUp.relatedType === "Lead"
       ? await resolveLeadDatabaseId(
@@ -634,10 +787,15 @@ export async function addFollowUp(
         )
       : null;
 
-  /*
-   * Resolve salesperson.
-   */
+  /* -------------------------------------------------------
+     RESOLVE SALES PERSON
+  ------------------------------------------------------- */
+
   const assignedToId = await resolveSalesPersonDatabaseId(followUp.assignedTo);
+
+  /* -------------------------------------------------------
+     CURRENT USER
+  ------------------------------------------------------- */
 
   const {
     data: { user },
@@ -659,6 +817,10 @@ export async function addFollowUp(
         followUp.relatedName || followUp.clientName
       }" was not found in the database.`,
     );
+  }
+
+  if (assignedToId === null) {
+    throw new Error("Assigned team member was not found in the database.");
   }
 
   /* -------------------------------------------------------
@@ -709,13 +871,19 @@ export async function addFollowUp(
     throw error;
   }
 
-  const createdFollowUp = await mapFollowUp(data as FollowUpRow);
+  const createdList = await mapFollowUps([data as FollowUpRow]);
 
-  /* -------------------------------------------------------
-     ACTIVITY LOG
-  ------------------------------------------------------- */
+  const createdFollowUp = createdList[0] || null;
 
-  await logActivity({
+  if (!createdFollowUp) {
+    return null;
+  }
+
+  /*
+   * Activity log should NOT block the user
+   * from returning to the Lead page.
+   */
+  void logActivity({
     action: "CREATE",
     module: "Follow-ups",
     recordId: createdFollowUp.id,
@@ -764,44 +932,72 @@ async function updateFollowUpInternal(
     return null;
   }
 
+  /*
+   * Load existing record.
+   */
   const existing = await getFollowUp(id);
+
+  if (!existing) {
+    return null;
+  }
 
   const databaseUpdates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
 
   /* -------------------------------------------------------
+     RELATED TYPE
+  ------------------------------------------------------- */
+
+  const targetRelatedType = updates.relatedType ?? existing.relatedType;
+
+  /* -------------------------------------------------------
      CLIENT
   ------------------------------------------------------- */
 
-  if (updates.clientId !== undefined) {
+  if (
+    targetRelatedType === "Client" &&
+    (updates.clientId !== undefined ||
+      updates.relatedId !== undefined ||
+      updates.relatedType !== undefined)
+  ) {
+    const clientDisplayId =
+      updates.clientId || updates.relatedId || existing.clientId;
+
     const resolvedClientId = await resolveClientDatabaseId(
-      updates.clientId,
-      updates.clientName || existing?.clientName,
+      clientDisplayId,
+      updates.clientName || updates.relatedName || existing.clientName,
     );
 
-    if (updates.relatedType === "Client" && resolvedClientId === null) {
+    if (resolvedClientId === null) {
       throw new Error(
         `Client "${
-          updates.clientName || existing?.clientName || ""
+          updates.clientName || updates.relatedName || existing.clientName || ""
         }" was not found in the database.`,
       );
     }
 
     databaseUpdates.client_id = resolvedClientId;
+
+    databaseUpdates.lead_id = null;
   }
 
   /* -------------------------------------------------------
      LEAD
   ------------------------------------------------------- */
 
-  if (updates.relatedType === "Lead" && updates.relatedId !== undefined) {
+  if (
+    targetRelatedType === "Lead" &&
+    (updates.relatedId !== undefined || updates.relatedType !== undefined)
+  ) {
+    const leadDisplayId = updates.relatedId || existing.relatedId;
+
     const resolvedLeadId = await resolveLeadDatabaseId(
-      updates.relatedId,
+      leadDisplayId,
       updates.relatedName ||
         updates.clientName ||
-        existing?.relatedName ||
-        existing?.clientName,
+        existing.relatedName ||
+        existing.clientName,
     );
 
     if (resolvedLeadId === null) {
@@ -809,8 +1005,8 @@ async function updateFollowUpInternal(
         `Lead "${
           updates.relatedName ||
           updates.clientName ||
-          existing?.relatedName ||
-          existing?.clientName ||
+          existing.relatedName ||
+          existing.clientName ||
           ""
         }" was not found in the database.`,
       );
@@ -822,17 +1018,31 @@ async function updateFollowUpInternal(
   }
 
   /* -------------------------------------------------------
-     ASSIGNED TO
+     QUOTATION / RENEWAL
   ------------------------------------------------------- */
 
-  if (updates.assignedTo !== undefined) {
-    databaseUpdates.assigned_to_id = await resolveSalesPersonDatabaseId(
-      updates.assignedTo,
+  if (targetRelatedType === "Quotation" || targetRelatedType === "Renewal") {
+    throw new Error(
+      `${targetRelatedType} follow-ups are not yet supported by the current database structure.`,
     );
   }
 
   /* -------------------------------------------------------
-     OTHER FIELDS
+     ASSIGNED TO
+  ------------------------------------------------------- */
+
+  if (updates.assignedTo !== undefined) {
+    const assignedToId = await resolveSalesPersonDatabaseId(updates.assignedTo);
+
+    if (assignedToId === null) {
+      throw new Error("Assigned team member was not found in the database.");
+    }
+
+    databaseUpdates.assigned_to_id = assignedToId;
+  }
+
+  /* -------------------------------------------------------
+     BASIC FIELDS
   ------------------------------------------------------- */
 
   if (updates.followUpDate !== undefined) {
@@ -880,7 +1090,7 @@ async function updateFollowUpInternal(
   }
 
   /* -------------------------------------------------------
-     UPDATE DATABASE
+     DATABASE UPDATE
   ------------------------------------------------------- */
 
   const { data, error } = await supabase
@@ -900,13 +1110,18 @@ async function updateFollowUpInternal(
     return null;
   }
 
-  const updatedFollowUp = await mapFollowUp(data as FollowUpRow);
+  const updatedList = await mapFollowUps([data as FollowUpRow]);
 
-  /* -------------------------------------------------------
-     ACTIVITY LOG
-  ------------------------------------------------------- */
+  const updatedFollowUp = updatedList[0] || null;
 
-  await logActivity({
+  if (!updatedFollowUp) {
+    return null;
+  }
+
+  /*
+   * Do not make the UI wait for activity log.
+   */
+  void logActivity({
     action: activityAction,
     module: "Follow-ups",
 
@@ -919,37 +1134,23 @@ async function updateFollowUpInternal(
 
     description: activityDescription,
 
-    oldData: existing
-      ? {
-          status: existing.status,
-
-          purpose: existing.purpose,
-
-          followUpDate: existing.followUpDate,
-
-          followUpTime: existing.followUpTime,
-
-          priority: existing.priority,
-
-          assignedTo: existing.assignedTo,
-
-          notes: existing.notes,
-        }
-      : undefined,
+    oldData: {
+      status: existing.status,
+      purpose: existing.purpose,
+      followUpDate: existing.followUpDate,
+      followUpTime: existing.followUpTime,
+      priority: existing.priority,
+      assignedTo: existing.assignedTo,
+      notes: existing.notes,
+    },
 
     newData: {
       status: updatedFollowUp.status,
-
       purpose: updatedFollowUp.purpose,
-
       followUpDate: updatedFollowUp.followUpDate,
-
       followUpTime: updatedFollowUp.followUpTime,
-
       priority: updatedFollowUp.priority,
-
       assignedTo: updatedFollowUp.assignedTo,
-
       notes: updatedFollowUp.notes,
     },
   });
@@ -1050,29 +1251,13 @@ export async function getFollowUpsByRelatedRecord(
 
   /* -------------------------------------------------------
      CLIENT
-     IMPORTANT:
-     CL-004 is NOT necessarily Supabase ID 4.
   ------------------------------------------------------- */
-    let databaseId: number | null = null;
-
-    /*
-     * First resolve through local client
-     * so CL-004 -> Onyx -> Supabase ID 7.
-     */
     const localClient = getClientById(relatedId);
 
-    if (localClient) {
-      databaseId = await resolveClientDatabaseId(
-        relatedId,
-        localClient.company,
-      );
-    } else {
-      /*
-       * If relatedId isn't a local CL-xxx ID,
-       * try it as a numeric DB ID.
-       */
-      databaseId = await resolveClientDatabaseId(relatedId);
-    }
+    const databaseId = await resolveClientDatabaseId(
+      relatedId,
+      localClient?.company,
+    );
 
     if (databaseId === null) {
       return [];
@@ -1097,7 +1282,7 @@ export async function getFollowUpsByRelatedRecord(
     return [];
   }
 
-  return Promise.all(((data ?? []) as FollowUpRow[]).map(mapFollowUp));
+  return mapFollowUps((data ?? []) as FollowUpRow[]);
 }
 
 /* =========================================================
@@ -1126,6 +1311,7 @@ export async function getQuotationFollowUps(
   quotationId: string,
 ): Promise<FollowUp[]> {
   void quotationId;
+
   return [];
 }
 
@@ -1137,6 +1323,7 @@ export async function getRenewalFollowUps(
   renewalId: string,
 ): Promise<FollowUp[]> {
   void renewalId;
+
   return [];
 }
 
@@ -1151,6 +1338,9 @@ export async function getPendingFollowUps(): Promise<FollowUp[]> {
     .eq("status", "Pending")
     .order("follow_up_date", {
       ascending: true,
+    })
+    .order("follow_up_time", {
+      ascending: true,
     });
 
   if (error) {
@@ -1159,7 +1349,7 @@ export async function getPendingFollowUps(): Promise<FollowUp[]> {
     return [];
   }
 
-  return Promise.all(((data ?? []) as FollowUpRow[]).map(mapFollowUp));
+  return mapFollowUps((data ?? []) as FollowUpRow[]);
 }
 
 /* =========================================================
@@ -1181,7 +1371,7 @@ export async function getCompletedFollowUps(): Promise<FollowUp[]> {
     return [];
   }
 
-  return Promise.all(((data ?? []) as FollowUpRow[]).map(mapFollowUp));
+  return mapFollowUps((data ?? []) as FollowUpRow[]);
 }
 
 /* =========================================================
@@ -1206,7 +1396,7 @@ export async function getTodayFollowUps(): Promise<FollowUp[]> {
     return [];
   }
 
-  return Promise.all(((data ?? []) as FollowUpRow[]).map(mapFollowUp));
+  return mapFollowUps((data ?? []) as FollowUpRow[]);
 }
 
 /* =========================================================
@@ -1231,5 +1421,5 @@ export async function getOverdueFollowUps(): Promise<FollowUp[]> {
     return [];
   }
 
-  return Promise.all(((data ?? []) as FollowUpRow[]).map(mapFollowUp));
+  return mapFollowUps((data ?? []) as FollowUpRow[]);
 }

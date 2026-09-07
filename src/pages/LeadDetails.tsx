@@ -7,6 +7,7 @@ import {
   markLeadWon,
   markLeadLost,
   type Lead,
+  type LeadStatus,
 } from "../data/leadStore";
 
 import { getActiveSalesPersons } from "../data/salesPersonStore";
@@ -19,6 +20,7 @@ import { getClientById } from "../data/clientStore";
 
 export default function LeadDetails() {
   const { leadId } = useParams();
+
   const navigate = useNavigate();
 
   const [refresh, setRefresh] = useState(0);
@@ -28,6 +30,7 @@ export default function LeadDetails() {
   ======================================================= */
 
   const [lead, setLead] = useState<Lead | null>(null);
+
   const [loadingLead, setLoadingLead] = useState(true);
 
   useEffect(() => {
@@ -39,6 +42,7 @@ export default function LeadDetails() {
           setLead(null);
           setLoadingLead(false);
         }
+
         return;
       }
 
@@ -47,7 +51,9 @@ export default function LeadDetails() {
       try {
         const result = await getLead(leadId);
 
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
 
         setLead(result);
       } catch (error) {
@@ -63,7 +69,7 @@ export default function LeadDetails() {
       }
     }
 
-    loadLead();
+    void loadLead();
 
     return () => {
       mounted = false;
@@ -85,7 +91,9 @@ export default function LeadDetails() {
       try {
         const persons = await getActiveSalesPersons();
 
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
 
         setSalesPersons(persons);
       } catch (error) {
@@ -97,7 +105,7 @@ export default function LeadDetails() {
       }
     }
 
-    loadSalesPersons();
+    void loadSalesPersons();
 
     return () => {
       mounted = false;
@@ -109,6 +117,7 @@ export default function LeadDetails() {
   ======================================================= */
 
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+
   const [loadingFollowUps, setLoadingFollowUps] = useState(true);
 
   useEffect(() => {
@@ -120,6 +129,7 @@ export default function LeadDetails() {
           setFollowUps([]);
           setLoadingFollowUps(false);
         }
+
         return;
       }
 
@@ -128,7 +138,9 @@ export default function LeadDetails() {
       try {
         const data = await getLeadFollowUps(leadId);
 
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
 
         setFollowUps(data);
       } catch (error) {
@@ -144,7 +156,7 @@ export default function LeadDetails() {
       }
     }
 
-    loadFollowUps();
+    void loadFollowUps();
 
     return () => {
       mounted = false;
@@ -202,58 +214,99 @@ export default function LeadDetails() {
   const service = services.find((item) => item.id === lead.interestedService);
 
   /*
-   * Check whether this Lead has already been converted.
+   * Frontend convertedClientId is always CRM ID:
+   *
+   * CL-005
    */
+
   const convertedClient = lead.convertedClientId
     ? getClientById(lead.convertedClientId)
     : undefined;
+
+  const isConverted = Boolean(lead.convertedClientId);
 
   /* =======================================================
      STATUS
   ======================================================= */
 
-  const handleStatusChange = async (
-    status:
-      | "New"
-      | "Contacted"
-      | "Follow-up"
-      | "Quotation Sent"
-      | "Negotiation"
-      | "Won"
-      | "Lost",
-  ) => {
+  const handleStatusChange = async (status: LeadStatus) => {
+    /*
+     * A converted lead belongs to the client lifecycle.
+     *
+     * Do not allow it to move away from Won.
+     */
+
+    if (isConverted) {
+      alert(
+        "This lead has already been converted to a client. Its status remains Won.",
+      );
+
+      return;
+    }
+
     try {
       await updateLeadStatus(lead.id, status);
 
       setRefresh((value) => value + 1);
     } catch (error) {
       console.error("Failed to update lead status:", error);
+
       alert("Failed to update lead status. Please try again.");
     }
   };
 
+  /* =======================================================
+     MARK WON
+  ======================================================= */
+
   const handleWon = async () => {
+    if (lead.status === "Won") {
+      return;
+    }
+
     try {
       await markLeadWon(lead.id);
 
       setRefresh((value) => value + 1);
     } catch (error) {
       console.error("Failed to mark lead as won:", error);
+
       alert("Failed to mark lead as won. Please try again.");
     }
   };
 
+  /* =======================================================
+     MARK LOST
+  ======================================================= */
+
   const handleLost = async () => {
+    if (isConverted) {
+      alert("A converted lead cannot be marked as Lost.");
+
+      return;
+    }
+
     const reason = window.prompt("Enter lost reason:");
 
-    if (reason === null) return;
+    if (reason === null) {
+      return;
+    }
+
+    const trimmedReason = reason.trim();
+
+    if (!trimmedReason) {
+      alert("Please enter a lost reason.");
+
+      return;
+    }
 
     try {
-      await markLeadLost(lead.id, reason);
+      await markLeadLost(lead.id, trimmedReason);
 
       setRefresh((value) => value + 1);
     } catch (error) {
       console.error("Failed to mark lead as lost:", error);
+
       alert("Failed to mark lead as lost. Please try again.");
     }
   };
@@ -263,24 +316,55 @@ export default function LeadDetails() {
   ======================================================= */
 
   const handleConvertToClient = () => {
+    if (lead.status !== "Won") {
+      alert("Only a Won lead can be converted to a client.");
+
+      return;
+    }
+
+    if (isConverted) {
+      if (convertedClient) {
+        navigate(`/clients/${convertedClient.id}`);
+      }
+
+      return;
+    }
+
     navigate(`/add-client?leadId=${encodeURIComponent(lead.id)}`);
   };
 
-  /*
-   * Create quotation directly from this Lead.
-   *
-   * Lead does NOT need to be converted into Client first.
-   * AddQuotation will use the leadId to pre-fill Lead-related data.
-   */
+  /* =======================================================
+     CREATE QUOTATION
+  ======================================================= */
+
   const handleCreateQuotation = () => {
+    if (lead.status === "Lost") {
+      return;
+    }
+
     navigate(`/add-quotation?leadId=${encodeURIComponent(lead.id)}`);
   };
 
-  void refresh;
+  /* =======================================================
+     STATUS OPTIONS
+  ======================================================= */
+
+  const statusOptions: LeadStatus[] = [
+    "New",
+    "Contacted",
+    "Follow-up",
+    "Quotation Sent",
+    "Negotiation",
+    "Won",
+    "Lost",
+  ];
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* =================================================
+          HEADER
+      ================================================= */}
+
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <button
@@ -307,6 +391,12 @@ export default function LeadDetails() {
             >
               {lead.status}
             </span>
+
+            {isConverted && (
+              <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+                Converted
+              </span>
+            )}
 
             <span
               className={`rounded-full px-3 py-1 text-xs font-medium ${
@@ -343,7 +433,7 @@ export default function LeadDetails() {
             </button>
           )}
 
-          {lead.status !== "Won" && (
+          {!isConverted && lead.status !== "Won" && (
             <button
               type="button"
               onClick={handleWon}
@@ -353,7 +443,7 @@ export default function LeadDetails() {
             </button>
           )}
 
-          {lead.status !== "Lost" && (
+          {!isConverted && lead.status !== "Lost" && (
             <button
               type="button"
               onClick={handleLost}
@@ -365,7 +455,10 @@ export default function LeadDetails() {
         </div>
       </div>
 
-      {/* Conversion */}
+      {/* =================================================
+          CONVERSION
+      ================================================= */}
+
       {lead.status === "Won" && (
         <section className="rounded-xl border border-green-200 bg-green-50 p-5">
           {convertedClient ? (
@@ -415,41 +508,38 @@ export default function LeadDetails() {
         </section>
       )}
 
-      {/* Status */}
+      {/* =================================================
+          STATUS
+      ================================================= */}
+
       <section className="rounded-xl border border-gray-200 bg-white p-5">
-        <h2 className="mb-4 text-base font-semibold text-gray-900">
-          Lead Status
-        </h2>
+        <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">
+              Lead Status
+            </h2>
+
+            {isConverted && (
+              <p className="mt-1 text-xs text-gray-500">
+                Converted leads remain in Won status.
+              </p>
+            )}
+          </div>
+        </div>
 
         <div className="flex flex-wrap gap-2">
-          {[
-            "New",
-            "Contacted",
-            "Follow-up",
-            "Quotation Sent",
-            "Negotiation",
-            "Won",
-            "Lost",
-          ].map((status) => (
+          {statusOptions.map((status) => (
             <button
               type="button"
               key={status}
-              onClick={() =>
-                handleStatusChange(
-                  status as
-                    | "New"
-                    | "Contacted"
-                    | "Follow-up"
-                    | "Quotation Sent"
-                    | "Negotiation"
-                    | "Won"
-                    | "Lost",
-                )
-              }
+              disabled={isConverted}
+              onClick={() => handleStatusChange(status)}
               className={`rounded-lg border px-3 py-2 text-sm transition ${
                 lead.status === status
                   ? "border-green-600 bg-green-50 font-medium text-green-700"
-                  : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                  : isConverted
+                    ? "cursor-not-allowed border-gray-200 bg-gray-50 text-gray-300"
+                    : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
               }`}
             >
               {status}
@@ -458,7 +548,10 @@ export default function LeadDetails() {
         </div>
       </section>
 
-      {/* Basic Information */}
+      {/* =================================================
+          BASIC INFORMATION
+      ================================================= */}
+
       <section className="rounded-xl border border-gray-200 bg-white p-5">
         <h2 className="mb-5 text-base font-semibold text-gray-900">
           Basic Information
@@ -500,7 +593,10 @@ export default function LeadDetails() {
         </div>
       </section>
 
-      {/* Requirement */}
+      {/* =================================================
+          REQUIREMENT
+      ================================================= */}
+
       <section className="rounded-xl border border-gray-200 bg-white p-5">
         <h2 className="mb-4 text-base font-semibold text-gray-900">
           Requirement
@@ -511,7 +607,10 @@ export default function LeadDetails() {
         </div>
       </section>
 
-      {/* Commercial */}
+      {/* =================================================
+          COMMERCIAL
+      ================================================= */}
+
       <section className="rounded-xl border border-gray-200 bg-white p-5">
         <h2 className="mb-5 text-base font-semibold text-gray-900">
           Commercial
@@ -561,7 +660,10 @@ export default function LeadDetails() {
         </div>
       </section>
 
-      {/* Reference */}
+      {/* =================================================
+          REFERENCE
+      ================================================= */}
+
       {(lead.referencePersonName ||
         lead.referencePersonPhone ||
         lead.referencePersonEmail) && (
@@ -583,7 +685,10 @@ export default function LeadDetails() {
         </section>
       )}
 
-      {/* Follow-up */}
+      {/* =================================================
+          FOLLOW-UP
+      ================================================= */}
+
       <section className="rounded-xl border border-gray-200 bg-white p-5">
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-base font-semibold text-gray-900">Follow-up</h2>
@@ -632,9 +737,13 @@ export default function LeadDetails() {
                 <thead>
                   <tr className="border-b border-gray-200 text-xs text-gray-500">
                     <th className="px-3 py-3">Date</th>
+
                     <th className="px-3 py-3">Purpose</th>
+
                     <th className="px-3 py-3">Assigned To</th>
+
                     <th className="px-3 py-3">Status</th>
+
                     <th className="px-3 py-3">Action</th>
                   </tr>
                 </thead>
@@ -644,6 +753,7 @@ export default function LeadDetails() {
                     <tr key={followUp.id} className="border-b border-gray-100">
                       <td className="px-3 py-3">
                         {followUp.followUpDate}
+
                         {followUp.followUpTime
                           ? ` ${followUp.followUpTime}`
                           : ""}
@@ -675,7 +785,10 @@ export default function LeadDetails() {
         )}
       </section>
 
-      {/* Notes */}
+      {/* =================================================
+          NOTES
+      ================================================= */}
+
       {(lead.notes || lead.internalNotes) && (
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {lead.notes && (
@@ -704,7 +817,10 @@ export default function LeadDetails() {
         </section>
       )}
 
-      {/* Lost Reason */}
+      {/* =================================================
+          LOST REASON
+      ================================================= */}
+
       {lead.lostReason && (
         <section className="rounded-xl border border-red-200 bg-red-50 p-5">
           <h2 className="mb-2 text-base font-semibold text-red-800">
@@ -715,7 +831,10 @@ export default function LeadDetails() {
         </section>
       )}
 
-      {/* Meta */}
+      {/* =================================================
+          META
+      ================================================= */}
+
       <section className="rounded-xl border border-gray-200 bg-white p-5">
         <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
           <InfoItem label="Created At" value={lead.createdAt} />
@@ -733,6 +852,10 @@ export default function LeadDetails() {
     </div>
   );
 }
+
+/* =========================================================
+   INFO ITEM
+========================================================= */
 
 function InfoItem({
   label,

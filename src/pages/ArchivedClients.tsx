@@ -7,6 +7,29 @@ import Pagination from "../components/Pagination";
 
 const PAGE_SIZE = 6;
 
+/* =================================================
+   CLIENT ID SORT
+   Latest Client ID first
+
+   Example:
+   CL-008
+   CL-007
+   CL-006
+   ...
+================================================= */
+
+function getClientSequence(id: string): number {
+  const match = id.match(/(\d+)$/);
+
+  if (!match) {
+    return 0;
+  }
+
+  const number = Number(match[1]);
+
+  return Number.isFinite(number) ? number : 0;
+}
+
 export default function ArchivedClients() {
   const navigate = useNavigate();
 
@@ -49,33 +72,56 @@ export default function ArchivedClients() {
       restoreClient(client.id);
 
       loadArchivedClients();
-
       setCurrentPage(1);
-    } catch {
+    } catch (error) {
+      console.error("Unable to restore client:", error);
+
       window.alert("Unable to restore client.");
     }
   };
 
   /* =================================================
-     SEARCH
+     SEARCH + SORT
+
+     Order:
+     1. Archived clients
+     2. Search
+     3. Latest Client ID first
+     4. Pagination
   ================================================= */
 
   const filteredClients = useMemo(() => {
     const searchText = search.toLowerCase().trim();
 
-    if (!searchText) {
-      return clients;
-    }
+    return clients
+      .filter((client) => {
+        if (!searchText) {
+          return true;
+        }
 
-    return clients.filter((client) => {
-      return (
-        client.company.toLowerCase().includes(searchText) ||
-        client.contactPerson.toLowerCase().includes(searchText) ||
-        client.phone.toLowerCase().includes(searchText) ||
-        client.id.toLowerCase().includes(searchText) ||
-        client.services.toLowerCase().includes(searchText)
-      );
-    });
+        const company = client.company?.toLowerCase() || "";
+        const contactPerson = client.contactPerson?.toLowerCase() || "";
+        const phone = client.phone?.toLowerCase() || "";
+        const id = client.id?.toLowerCase() || "";
+        const services = client.services?.toLowerCase() || "";
+
+        return (
+          company.includes(searchText) ||
+          contactPerson.includes(searchText) ||
+          phone.includes(searchText) ||
+          id.includes(searchText) ||
+          services.includes(searchText)
+        );
+      })
+      .sort((a, b) => {
+        /*
+         * Latest Client ID first.
+         *
+         * CL-008 → CL-007 → CL-006
+         */
+
+        return getClientSequence(b.id) - getClientSequence(a.id);
+      });
   }, [clients, search]);
 
   /* =================================================
@@ -113,18 +159,18 @@ export default function ArchivedClients() {
   ================================================= */
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full max-w-[1800px] min-w-0 space-y-4 sm:space-y-5">
       {/* =================================================
           PAGE HEADER
       ================================================= */}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-xl font-bold leading-tight text-slate-900 sm:text-2xl">
             Archived Clients
           </h2>
 
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 sm:text-sm">
             View and restore archived CRM clients
           </p>
         </div>
@@ -132,7 +178,7 @@ export default function ArchivedClients() {
         <button
           type="button"
           onClick={() => navigate("/clients")}
-          className="w-fit rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+          className="inline-flex min-h-10 w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 sm:w-auto"
         >
           ← Back to Clients
         </button>
@@ -142,13 +188,18 @@ export default function ArchivedClients() {
           SEARCH
       ================================================= */}
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
+        <label htmlFor="archived-client-search" className="sr-only">
+          Search archived clients
+        </label>
+
         <input
+          id="archived-client-search"
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search archived clients..."
-          className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-green-600 focus:ring-2 focus:ring-green-100"
+          className="h-10 w-full min-w-0 rounded-lg border border-slate-300 px-3.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-100 sm:h-11 sm:px-4"
         />
       </div>
 
@@ -156,84 +207,118 @@ export default function ArchivedClients() {
           TABLE
       ================================================= */}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {paginatedClients.length > 0 ? (
           <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
+            {/* 
+              Horizontal scrolling is intentionally limited
+              to the table area on smaller screens.
+            */}
+
+            <div className="w-full overflow-x-auto">
+              <table className="w-full min-w-[760px]">
+                {/* =================================================
+                    TABLE HEADER
+                ================================================= */}
+
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="w-[27%] min-w-[190px] px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 sm:px-5">
                       Client
                     </th>
 
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="w-[22%] min-w-[160px] px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 sm:px-5">
                       Contact
                     </th>
 
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="w-[25%] min-w-[180px] px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 sm:px-5">
                       Services
                     </th>
 
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="w-[13%] min-w-[100px] px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 sm:px-5">
                       Status
                     </th>
 
-                    <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="w-[13%] min-w-[150px] px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 sm:px-5">
                       Action
                     </th>
                   </tr>
                 </thead>
 
+                {/* =================================================
+                    TABLE BODY
+                ================================================= */}
+
                 <tbody className="divide-y divide-slate-100">
                   {paginatedClients.map((client) => (
-                    <tr key={client.id} className="hover:bg-slate-50">
+                    <tr
+                      key={client.id}
+                      className="transition hover:bg-slate-50"
+                    >
                       {/* Client */}
 
-                      <td className="px-5 py-4">
-                        <p className="text-sm font-semibold text-slate-900">
-                          {client.company}
-                        </p>
+                      <td className="max-w-0 px-4 py-3.5 sm:px-5 sm:py-4">
+                        <div className="min-w-0">
+                          <p
+                            className="truncate text-sm font-semibold text-slate-900"
+                            title={client.company}
+                          >
+                            {client.company}
+                          </p>
 
-                        <p className="mt-1 text-xs text-slate-500">
-                          {client.id}
-                        </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {client.id}
+                          </p>
+                        </div>
                       </td>
 
                       {/* Contact */}
 
-                      <td className="px-5 py-4">
-                        <p className="text-sm text-slate-700">
-                          {client.contactPerson}
-                        </p>
+                      <td className="max-w-0 px-4 py-3.5 sm:px-5 sm:py-4">
+                        <div className="min-w-0">
+                          <p
+                            className="truncate text-sm text-slate-700"
+                            title={client.contactPerson}
+                          >
+                            {client.contactPerson}
+                          </p>
 
-                        <p className="mt-1 text-xs text-slate-500">
-                          {client.phone}
-                        </p>
+                          <p
+                            className="mt-1 truncate text-xs text-slate-500"
+                            title={client.phone}
+                          >
+                            {client.phone}
+                          </p>
+                        </div>
                       </td>
 
                       {/* Services */}
 
-                      <td className="px-5 py-4 text-sm text-slate-700">
-                        {client.services}
+                      <td className="max-w-0 px-4 py-3.5 sm:px-5 sm:py-4">
+                        <p
+                          className="truncate text-sm text-slate-700"
+                          title={client.services}
+                        >
+                          {client.services}
+                        </p>
                       </td>
 
                       {/* Status */}
 
-                      <td className="px-5 py-4">
-                        <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                      <td className="px-4 py-3.5 sm:px-5 sm:py-4">
+                        <span className="inline-flex whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
                           Archived
                         </span>
                       </td>
 
                       {/* Actions */}
 
-                      <td className="px-5 py-4 text-right">
-                        <div className="flex items-center justify-end gap-4">
+                      <td className="px-4 py-3.5 text-right sm:px-5 sm:py-4">
+                        <div className="flex items-center justify-end gap-2 sm:gap-4">
                           <button
                             type="button"
                             onClick={() => navigate(`/clients/${client.id}`)}
-                            className="text-sm font-medium text-slate-700 hover:text-slate-900"
+                            className="inline-flex min-h-8 items-center justify-center rounded-md px-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-900"
                           >
                             View
                           </button>
@@ -241,7 +326,7 @@ export default function ArchivedClients() {
                           <button
                             type="button"
                             onClick={() => handleRestore(client)}
-                            className="text-sm font-medium text-green-600 hover:text-green-700"
+                            className="inline-flex min-h-8 items-center justify-center rounded-md px-2 text-sm font-medium text-green-600 transition hover:bg-green-50 hover:text-green-700"
                           >
                             Restore
                           </button>
@@ -253,28 +338,32 @@ export default function ArchivedClients() {
               </table>
             </div>
 
-            {/* Pagination */}
+            {/* =================================================
+                PAGINATION
+            ================================================= */}
 
-            <Pagination
-              currentPage={currentPage}
-              totalItems={filteredClients.length}
-              pageSize={PAGE_SIZE}
-              onPageChange={setCurrentPage}
-            />
+            <div className="border-t border-slate-100">
+              <Pagination
+                currentPage={currentPage}
+                totalItems={filteredClients.length}
+                pageSize={PAGE_SIZE}
+                onPageChange={setCurrentPage}
+              />
+            </div>
           </>
         ) : (
           /* =================================================
              EMPTY STATE
           ================================================= */
 
-          <div className="px-5 py-12 text-center">
+          <div className="px-4 py-12 text-center sm:px-5">
             <div className="text-3xl">📁</div>
 
             <p className="mt-3 text-sm font-medium text-slate-700">
               No archived clients
             </p>
 
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 sm:text-sm">
               Archived clients will appear here.
             </p>
           </div>

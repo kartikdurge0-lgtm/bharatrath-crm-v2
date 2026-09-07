@@ -72,26 +72,47 @@
    GLOBAL RESET
    ========================================================= */
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
 html,
 body,
 #root {
-  margin: 0;
+  width: 100%;
   min-width: 320px;
-  min-height: 100vh;
+  min-height: 100%;
+  margin: 0;
 }
 
 html {
   background: var(--br-page-bg);
+  overflow-x: hidden;
 }
 
 body {
   min-height: 100vh;
   background: var(--br-page-bg);
   color: var(--br-text);
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* =========================================================
+   MEDIA
+   ========================================================= */
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
 }
 
 /* =========================================================
@@ -111,6 +132,12 @@ button {
 
 button:disabled {
   cursor: not-allowed;
+}
+
+input,
+select,
+textarea {
+  max-width: 100%;
 }
 
 /* =========================================================
@@ -169,6 +196,35 @@ a {
 
 table {
   border-collapse: collapse;
+  max-width: 100%;
+}
+
+/*
+  Use this class around wide tables when horizontal scrolling
+  is required on smaller screens.
+*/
+.table-responsive {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* =========================================================
+   TEXT SAFETY
+   ========================================================= */
+
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+span,
+a {
+  overflow-wrap: break-word;
 }
 
 /* =========================================================
@@ -182,7 +238,6 @@ table {
 
 /* =========================================================
    COMMON BRAND HELPERS
-   These can be used gradually across pages.
    ========================================================= */
 
 .br-primary {
@@ -240,4 +295,130 @@ table {
 .br-status-danger {
   background: var(--br-red-light);
   color: #dc2626;
+}
+
+/* =========================================================
+   RESPONSIVE CRM SAFEGUARDS
+   ========================================================= */
+
+/*
+  Prevent common child elements from forcing the entire
+  application wider than the viewport.
+*/
+
+main,
+section,
+article,
+header,
+footer,
+nav {
+  min-width: 0;
+}
+
+/*
+  Long words, IDs, invoice numbers, email addresses etc.
+  should not break the page layout.
+*/
+
+.break-safe {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/*
+  Utility for content that must remain inside the viewport.
+*/
+
+.br-container {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* =========================================================
+   MOBILE
+   320px — 639px
+   ========================================================= */
+
+@media (max-width: 639px) {
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  /*
+    Keep page content comfortable on very small screens.
+    Individual pages can override these values when needed.
+  */
+
+  .table-responsive {
+    overflow-x: auto;
+  }
+}
+
+/* =========================================================
+   TABLET
+   640px — 1023px
+   ========================================================= */
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .table-responsive {
+    overflow-x: auto;
+  }
+}
+
+/* =========================================================
+   LAPTOP
+   1024px — 1439px
+   ========================================================= */
+
+@media (min-width: 1024px) and (max-width: 1439px) {
+  /*
+    Normal desktop layout.
+    Individual pages control their own grids and spacing.
+  */
+}
+
+/* =========================================================
+   DESKTOP
+   1440px — 1919px
+   ========================================================= */
+
+@media (min-width: 1440px) and (max-width: 1919px) {
+  /*
+    Do not artificially enlarge fonts or cards.
+    Extra horizontal space should remain comfortable.
+  */
+}
+
+/* =========================================================
+   LARGE DESKTOP
+   1920px+
+   ========================================================= */
+
+@media (min-width: 1920px) {
+  /*
+    Large monitors should not make the CRM excessively large.
+    Content should remain readable instead of stretching
+    across the complete screen.
+  */
+
+  body {
+    font-size: 15px;
+  }
+}
+
+/* =========================================================
+   REDUCED MOTION
+   ========================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

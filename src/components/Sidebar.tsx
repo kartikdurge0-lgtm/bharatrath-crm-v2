@@ -24,17 +24,17 @@ const menuSections = [
 ];
 
 const baseItemClass =
-  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition";
+  "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors duration-150";
 
 export default function Sidebar() {
   return (
-    <aside className="flex h-screen w-64 min-h-screen flex-col border-r border-gray-200 bg-white">
+    <aside className="flex h-full min-h-0 w-64 max-w-[85vw] flex-col border-r border-gray-200 bg-white">
       {/* =================================================
           BRANDING
       ================================================= */}
 
-      <div className="flex h-[66px] shrink-0 items-center border-b border-gray-200 px-5">
-        <div>
+      <div className="flex h-16 shrink-0 items-center border-b border-gray-200 px-4 sm:px-5">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold leading-6 text-green-600">
             Bharatrath
           </h1>
@@ -49,7 +49,7 @@ export default function Sidebar() {
           NAVIGATION
       ================================================= */}
 
-      <nav className="flex-1 overflow-y-auto px-3 py-3">
+      <nav className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2.5 py-3 sm:px-3">
         {/* =================================================
             DASHBOARD
         ================================================= */}
@@ -65,8 +65,11 @@ export default function Sidebar() {
             }`
           }
         >
-          <span className="text-base">🏠</span>
-          <span>Dashboard</span>
+          <span className="flex w-5 shrink-0 items-center justify-center text-base">
+            🏠
+          </span>
+
+          <span className="truncate">Dashboard</span>
         </NavLink>
 
         {/* =================================================
@@ -91,8 +94,11 @@ export default function Sidebar() {
                 }`
               }
             >
-              <span className="text-base">🎯</span>
-              <span>Leads</span>
+              <span className="flex w-5 shrink-0 items-center justify-center text-base">
+                🎯
+              </span>
+
+              <span className="truncate">Leads</span>
             </NavLink>
 
             {/* Follow-ups */}
@@ -107,8 +113,11 @@ export default function Sidebar() {
                 }`
               }
             >
-              <span className="text-base">📞</span>
-              <span>Follow-ups</span>
+              <span className="flex w-5 shrink-0 items-center justify-center text-base">
+                📞
+              </span>
+
+              <span className="truncate">Follow-ups</span>
             </NavLink>
 
             {/* Clients */}
@@ -123,8 +132,11 @@ export default function Sidebar() {
                 }`
               }
             >
-              <span className="text-base">👥</span>
-              <span>Clients</span>
+              <span className="flex w-5 shrink-0 items-center justify-center text-base">
+                👥
+              </span>
+
+              <span className="truncate">Clients</span>
             </NavLink>
 
             {/* Renewals */}
@@ -139,8 +151,11 @@ export default function Sidebar() {
                 }`
               }
             >
-              <span className="text-base">🔄</span>
-              <span>Renewals</span>
+              <span className="flex w-5 shrink-0 items-center justify-center text-base">
+                🔄
+              </span>
+
+              <span className="truncate">Renewals</span>
             </NavLink>
           </div>
         </div>
@@ -168,8 +183,11 @@ export default function Sidebar() {
                     }`
                   }
                 >
-                  <span className="text-base">{item.icon}</span>
-                  <span>{item.label}</span>
+                  <span className="flex w-5 shrink-0 items-center justify-center text-base">
+                    {item.icon}
+                  </span>
+
+                  <span className="truncate">{item.label}</span>
                 </NavLink>
               ))}
             </div>
@@ -182,7 +200,7 @@ export default function Sidebar() {
       ================================================= */}
 
       <div className="shrink-0 border-t border-gray-200 px-4 py-2.5">
-        <p className="text-[10px] text-gray-400">Bharatrath CRM</p>
+        <p className="truncate text-[10px] text-gray-400">Bharatrath CRM</p>
       </div>
     </aside>
   );

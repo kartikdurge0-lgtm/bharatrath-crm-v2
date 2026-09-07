@@ -14,10 +14,7 @@ import {
   type Invoice,
 } from "../data/invoiceStore";
 
-import {
-  getInvoiceSettings,
-  updateNextRenewalInvoiceNumber,
-} from "../data/settingsStore";
+import { getInvoiceSettings } from "../data/settingsStore";
 
 import AddPaymentModal from "../components/AddPaymentModal";
 
@@ -42,7 +39,9 @@ export default function RenewalDetails() {
   -------------------------------- */
 
   useEffect(() => {
-    if (!renewalId) return;
+    if (!renewalId) {
+      return;
+    }
 
     const existing = getRenewal(renewalId);
 
@@ -61,7 +60,9 @@ export default function RenewalDetails() {
   -------------------------------- */
 
   const refreshInvoice = () => {
-    if (!renewal) return;
+    if (!renewal) {
+      return;
+    }
 
     const invoice = getInvoiceByRenewalId(renewal.id);
 
@@ -75,13 +76,17 @@ export default function RenewalDetails() {
   -------------------------------- */
 
   const handleComplete = () => {
-    if (!renewal) return;
+    if (!renewal) {
+      return;
+    }
 
     const confirmed = window.confirm(
       `Mark "${renewal.service}" renewal for "${renewal.clientName}" as completed?`,
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     const updated = completeRenewal(renewal.id);
 
@@ -92,10 +97,16 @@ export default function RenewalDetails() {
 
   /* --------------------------------
      Generate Invoice
+     
+     IMPORTANT:
+     createInvoice() is the source of truth
+     for final invoice numbering.
   -------------------------------- */
 
   const handleGenerateInvoice = () => {
-    if (!renewal) return;
+    if (!renewal) {
+      return;
+    }
 
     const existingInvoice = getInvoiceByRenewalId(renewal.id);
 
@@ -113,64 +124,25 @@ export default function RenewalDetails() {
       )}?`,
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     try {
       setGeneratingInvoice(true);
 
       const invoiceSettings = getInvoiceSettings();
 
-      /*
-       * Client Number
-       */
-
-      const clientIdMatch = renewal.clientId.match(/(\d+)$/);
-
-      const clientNumber = clientIdMatch
-        ? clientIdMatch[1].padStart(3, "0")
-        : renewal.clientId;
-
-      /*
-       * Financial Year
-       */
-
       const invoiceDate = new Date();
-
-      const currentYear = invoiceDate.getFullYear();
-
-      const currentMonth = invoiceDate.getMonth() + 1;
-
-      const financialYearStart =
-        currentMonth >= 4 ? currentYear : currentYear - 1;
-
-      const financialYear = `${financialYearStart}-${String(
-        financialYearStart + 1,
-      ).slice(-2)}`;
-
-      /*
-       * Renewal Invoice Serial
-       */
-
-      const renewalSerial = Number(invoiceSettings.nextRenewalNumber) || 1;
-
-      /*
-       * Renewal Invoice Number
-       *
-       * REN/001/2026-27/001
-       */
-
-      const invoiceNumber = `REN/${clientNumber}/${financialYear}/${String(
-        renewalSerial,
-      ).padStart(3, "0")}`;
-
-      /*
-       * Due Date
-       */
 
       const dueDate = getDueDate(invoiceSettings.paymentTerms);
 
       /*
-       * Create Invoice
+       * createInvoice() generates the final
+       * renewal invoice number.
+       *
+       * Do NOT manually generate or increment
+       * the renewal invoice serial here.
        */
 
       const invoice = createInvoice({
@@ -209,15 +181,7 @@ export default function RenewalDetails() {
         tax: invoiceSettings.defaultGst,
 
         notes: invoiceSettings.notes,
-
-        invoiceNumber,
       });
-
-      /*
-       * Increase only renewal invoice number
-       */
-
-      updateNextRenewalInvoiceNumber(renewalSerial + 1);
 
       setGeneratedInvoice(invoice);
 
@@ -238,9 +202,17 @@ export default function RenewalDetails() {
   -------------------------------- */
 
   const formatDate = (date: string) => {
-    if (!date) return "-";
+    if (!date) {
+      return "-";
+    }
 
-    return new Date(date).toLocaleDateString("en-IN", {
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return "-";
+    }
+
+    return parsedDate.toLocaleDateString("en-IN", {
       day: "2-digit",
       month: "short",
       year: "numeric",
@@ -253,14 +225,14 @@ export default function RenewalDetails() {
 
   if (!renewal) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
+      <div className="mx-auto w-full max-w-[1800px] min-w-0 space-y-4 sm:space-y-6">
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <h2 className="text-2xl font-bold text-slate-900">
               Renewal Details
             </h2>
 
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 break-all text-sm text-slate-500">
               Renewal ID: {renewalId}
             </p>
           </div>
@@ -268,13 +240,13 @@ export default function RenewalDetails() {
           <button
             type="button"
             onClick={() => navigate("/renewals")}
-            className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="w-full shrink-0 rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
           >
             ← Back to Renewals
           </button>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm sm:p-10">
           <p className="text-sm font-medium text-slate-700">
             Renewal record not found.
           </p>
@@ -288,8 +260,8 @@ export default function RenewalDetails() {
   -------------------------------- */
 
   /*
-   * paymentRefresh forces this section to
-   * read the latest invoice from localStorage.
+   * paymentRefresh intentionally forces
+   * this section to refresh after payment.
    */
   void paymentRefresh;
 
@@ -318,7 +290,7 @@ export default function RenewalDetails() {
           : "bg-slate-100 text-slate-700";
 
   /* --------------------------------
-     Status Classes
+     Renewal Status
   -------------------------------- */
 
   const statusClass =
@@ -331,16 +303,16 @@ export default function RenewalDetails() {
           : "bg-slate-100 text-slate-700";
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-[1800px] min-w-0 space-y-4 sm:space-y-6">
       {/* --------------------------------
           Header
       -------------------------------- */}
 
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-2xl font-bold text-slate-900">Renewal Details</h2>
 
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 break-all text-sm text-slate-500">
             Renewal ID: {renewal.id}
           </p>
         </div>
@@ -348,7 +320,7 @@ export default function RenewalDetails() {
         <button
           type="button"
           onClick={() => navigate("/renewals")}
-          className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          className="w-full shrink-0 rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
         >
           ← Back to Renewals
         </button>
@@ -358,11 +330,11 @@ export default function RenewalDetails() {
           Main Information
       -------------------------------- */}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
         {/* Renewal Information */}
 
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
-          <div className="border-b border-slate-200 px-6 py-5">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
+          <div className="border-b border-slate-200 px-4 py-4 sm:px-6 sm:py-5">
             <h3 className="text-lg font-semibold text-slate-900">
               Renewal Information
             </h3>
@@ -372,7 +344,7 @@ export default function RenewalDetails() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-x-10 gap-y-7 p-6 md:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-x-10 gap-y-6 p-4 sm:p-6 md:grid-cols-2">
             <Info label="CLIENT NAME" value={renewal.clientName} bold />
 
             <Info label="CLIENT ID" value={renewal.clientId} />
@@ -394,16 +366,16 @@ export default function RenewalDetails() {
           </div>
         </div>
 
-        {/* Status */}
+        {/* Renewal Status */}
 
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-6 py-5">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-4 py-4 sm:px-6 sm:py-5">
             <h3 className="text-lg font-semibold text-slate-900">
               Renewal Status
             </h3>
           </div>
 
-          <div className="space-y-7 p-6">
+          <div className="space-y-6 p-4 sm:space-y-7 sm:p-6">
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                 Current Status
@@ -445,8 +417,8 @@ export default function RenewalDetails() {
 
       {generatedInvoice && (
         <>
-          <div className="overflow-hidden rounded-xl border border-green-200 bg-green-50 shadow-sm">
-            <div className="border-b border-green-200 px-6 py-5">
+          <div className="min-w-0 overflow-hidden rounded-xl border border-green-200 bg-green-50 shadow-sm">
+            <div className="border-b border-green-200 px-4 py-4 sm:px-6 sm:py-5">
               <h3 className="text-lg font-semibold text-green-900">
                 Renewal Invoice
               </h3>
@@ -456,13 +428,13 @@ export default function RenewalDetails() {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-5 p-6 sm:grid-cols-3">
-              <div>
+            <div className="grid min-w-0 grid-cols-1 gap-5 p-4 sm:p-6 md:grid-cols-2 lg:grid-cols-3">
+              <div className="min-w-0">
                 <p className="text-xs font-medium uppercase tracking-wide text-green-600">
                   Invoice Number
                 </p>
 
-                <p className="mt-1 text-lg font-bold text-green-900">
+                <p className="mt-1 break-all text-lg font-bold text-green-900">
                   {generatedInvoice.invoiceNumber}
                 </p>
               </div>
@@ -494,9 +466,9 @@ export default function RenewalDetails() {
           -------------------------------- */}
 
           {paymentSummary && (
-            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex flex-col gap-4 border-b border-slate-200 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
-                <div>
+            <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex min-w-0 flex-col gap-4 border-b border-slate-200 px-4 py-4 sm:px-6 sm:py-5 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
                   <h3 className="text-lg font-semibold text-slate-900">
                     Payment Summary
                   </h3>
@@ -507,13 +479,13 @@ export default function RenewalDetails() {
                 </div>
 
                 <span
-                  className={`inline-flex w-fit rounded-full px-3 py-1.5 text-sm font-semibold ${paymentStatusClass}`}
+                  className={`inline-flex w-fit shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold ${paymentStatusClass}`}
                 >
                   {paymentStatus}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 p-6 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-3 sm:gap-4 sm:p-6">
                 <div className="rounded-lg bg-slate-50 p-4">
                   <p className="text-xs text-slate-500">Invoice Amount</p>
 
@@ -539,13 +511,13 @@ export default function RenewalDetails() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-3 border-t border-slate-200 px-6 py-5">
+              <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 sm:flex-row sm:flex-wrap sm:px-6 sm:py-5">
                 {paymentSummary.balance > 0 &&
                   generatedInvoice.status !== "Cancelled" && (
                     <button
                       type="button"
                       onClick={() => setShowPaymentModal(true)}
-                      className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+                      className="w-full rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 sm:w-auto"
                     >
                       + Add Payment
                     </button>
@@ -554,7 +526,7 @@ export default function RenewalDetails() {
                 <button
                   type="button"
                   onClick={() => navigate(`/invoices/${generatedInvoice.id}`)}
-                  className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
                 >
                   View Invoice
                 </button>
@@ -562,7 +534,7 @@ export default function RenewalDetails() {
                 <button
                   type="button"
                   onClick={() => navigate("/payments")}
-                  className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
                 >
                   Payment History
                 </button>
@@ -576,8 +548,8 @@ export default function RenewalDetails() {
           Notes
       -------------------------------- */}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-6 py-5">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-4 py-4 sm:px-6 sm:py-5">
           <h3 className="text-lg font-semibold text-slate-900">Notes</h3>
 
           <p className="mt-1 text-sm text-slate-500">
@@ -585,8 +557,8 @@ export default function RenewalDetails() {
           </p>
         </div>
 
-        <div className="p-6">
-          <div className="min-h-[90px] rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+        <div className="p-4 sm:p-6">
+          <div className="min-h-[90px] break-words rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
             {renewal.notes || "No notes added."}
           </div>
         </div>
@@ -596,18 +568,18 @@ export default function RenewalDetails() {
           Actions
       -------------------------------- */}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-6 py-5">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-4 py-4 sm:px-6 sm:py-5">
           <h3 className="text-lg font-semibold text-slate-900">Actions</h3>
 
           <p className="mt-1 text-sm text-slate-500">Manage this renewal</p>
         </div>
 
-        <div className="flex flex-wrap gap-3 p-6">
+        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:p-6">
           <button
             type="button"
             onClick={() => navigate(`/renewals/${renewal.id}/edit`)}
-            className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="w-full rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
           >
             Edit Renewal
           </button>
@@ -617,7 +589,7 @@ export default function RenewalDetails() {
               type="button"
               onClick={handleGenerateInvoice}
               disabled={generatingInvoice}
-              className={`rounded-lg px-5 py-2.5 text-sm font-semibold text-white ${
+              className={`w-full rounded-lg px-5 py-2.5 text-sm font-semibold text-white sm:w-auto ${
                 generatingInvoice
                   ? "cursor-not-allowed bg-slate-400"
                   : "bg-blue-600 hover:bg-blue-700"
@@ -631,7 +603,7 @@ export default function RenewalDetails() {
             <button
               type="button"
               onClick={handleComplete}
-              className="rounded-lg bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+              className="w-full rounded-lg bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
             >
               ✓ Complete Renewal
             </button>
@@ -639,7 +611,7 @@ export default function RenewalDetails() {
             <button
               type="button"
               disabled
-              className="cursor-not-allowed rounded-lg bg-slate-300 px-5 py-2.5 text-sm font-semibold text-white"
+              className="w-full cursor-not-allowed rounded-lg bg-slate-300 px-5 py-2.5 text-sm font-semibold text-white sm:w-auto"
             >
               ✓ Completed
             </button>
@@ -648,7 +620,7 @@ export default function RenewalDetails() {
           <button
             type="button"
             onClick={() => navigate("/renewals")}
-            className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="w-full rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
           >
             Back to Renewals
           </button>
@@ -698,13 +670,13 @@ function Info({
   bold?: boolean;
 }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
         {label}
       </p>
 
       <p
-        className={`mt-2 text-sm ${
+        className={`mt-2 break-words text-sm ${
           bold ? "font-semibold text-slate-900" : "text-slate-700"
         }`}
       >

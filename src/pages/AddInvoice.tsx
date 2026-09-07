@@ -5,16 +5,16 @@ import {
   createInvoice,
   calculateInvoiceTotals,
   getInvoices,
+  generateInvoiceNumber,
+  getInvoiceByQuotationReference,
   type InvoiceItem,
   type InvoiceStatus,
 } from "../data/invoiceStore";
 
-import {
-  getInvoiceSettings,
-  updateNextInvoiceNumber,
-} from "../data/settingsStore";
+import { getInvoiceSettings } from "../data/settingsStore";
 
 import { getClients } from "../data/clientStore";
+import SearchableClientSelect from "../components/SearchableClientSelect";
 
 import { getServices } from "../data/serviceStore";
 
@@ -60,9 +60,9 @@ export default function AddInvoice() {
 
   const quotationId = searchParams.get("quotationId") || "";
 
-  /* -------------------------------------------------------
+  /* =======================================================
      DATA
-  ------------------------------------------------------- */
+  ======================================================= */
 
   const clients = useMemo(() => getClients(), []);
 
@@ -76,23 +76,15 @@ export default function AddInvoice() {
     return getQuotation(quotationId);
   }, [quotationId]);
 
-  /* -------------------------------------------------------
+  /* =======================================================
      SETTINGS
-  ------------------------------------------------------- */
+  ======================================================= */
 
   const invoiceSettings = useMemo(() => getInvoiceSettings(), []);
 
-  const settingsPrefix = invoiceSettings.prefix.trim() || "INV-";
-
-  const settingsSerial = Math.max(1, Number(invoiceSettings.nextNumber) || 1);
-
-  const defaultInvoiceNumber = `${settingsPrefix}${String(
-    settingsSerial,
-  ).padStart(3, "0")}`;
-
-  /* -------------------------------------------------------
+  /* =======================================================
      QUOTATION PREFILL
-  ------------------------------------------------------- */
+  ======================================================= */
 
   const quotationClientId = quotation?.clientId || "";
 
@@ -117,27 +109,22 @@ export default function AddInvoice() {
       frequency: item.frequency || "",
     })) || [];
 
-  /* -------------------------------------------------------
+  /* =======================================================
      FORM STATE
-  ------------------------------------------------------- */
+  ======================================================= */
 
   const [clientId, setClientId] = useState<string>(quotationClientId);
-
-  /*
-   * Invoice number is captured when the form opens.
-   * The final number is checked again during submit
-   * to avoid using stale Settings data.
-   */
-
-  const [invoiceNumber] = useState<string>(defaultInvoiceNumber);
 
   const [invoiceDate, setInvoiceDate] = useState<string>(today());
 
   const [dueDate, setDueDate] = useState<string>("");
 
   /*
-   * New invoices can only be created as Draft or Sent.
-   * Payment-related statuses are controlled by payment logic.
+   * New invoices can only be created as
+   * Draft or Sent.
+   *
+   * Payment-related statuses are controlled
+   * by payment logic.
    */
 
   const [status, setStatus] = useState<InvoiceStatus>("Draft");
@@ -152,9 +139,9 @@ export default function AddInvoice() {
       : Number(invoiceSettings.defaultGst) || 18,
   );
 
-  /* -------------------------------------------------------
+  /* =======================================================
      LAST INVOICE NOTES PREFILL
-  ------------------------------------------------------- */
+  ======================================================= */
 
   const [notes, setNotes] = useState<string>(() => {
     try {
@@ -186,9 +173,9 @@ export default function AddInvoice() {
 
   const [error, setError] = useState<string>("");
 
-  /* -------------------------------------------------------
+  /* =======================================================
      CLIENT
-  ------------------------------------------------------- */
+  ======================================================= */
 
   const selectedClient = clients.find(
     (client) => String(client.id) === String(clientId),
@@ -196,9 +183,44 @@ export default function AddInvoice() {
 
   const clientName = selectedClient?.company || "";
 
-  /* -------------------------------------------------------
+  /* =======================================================
+     INVOICE NUMBER PREVIEW
+  ======================================================= */
+
+  /*
+   * Invoice numbering policy:
+   *
+   * Normal invoice:
+   * BDP-CLIENT-YEAR-SERIAL
+   *
+   * Invoice created from quotation:
+   * BDP-CLIENT-YEAR-SERIAL
+   *
+   * Renewal invoice:
+   * REN-CLIENT-YEAR-SERIAL
+   *
+   * This screen creates normal/quotation invoices,
+   * therefore preview always uses BDP.
+   *
+   * IMPORTANT:
+   *
+   * This is only a preview.
+   *
+   * createInvoice() generates the final number
+   * again during submission.
+   */
+
+  const invoiceNumberPreview = useMemo(() => {
+    if (!clientId || !invoiceDate) {
+      return "Auto-generated";
+    }
+
+    return generateInvoiceNumber(String(clientId), "BDP", invoiceDate);
+  }, [clientId, invoiceDate]);
+
+  /* =======================================================
      TOTALS
-  ------------------------------------------------------- */
+  ======================================================= */
 
   const totals = calculateInvoiceTotals(items, tax);
 
@@ -381,11 +403,60 @@ export default function AddInvoice() {
     setError("");
 
     /* -----------------------------------------------------
+       QUOTATION VALIDATION / DUPLICATE PROTECTION
+    ----------------------------------------------------- */
+
+    if (quotation) {
+      /*
+       * Only an Accepted quotation can be converted into
+       * an invoice.
+       */
+      if (quotation.status !== "Accepted") {
+        setError(
+          `Invoice can only be created from an Accepted quotation. Current status: ${quotation.status}.`,
+        );
+
+        return;
+      }
+
+      /*
+       * A quotation can generate only ONE invoice.
+       *
+       * Check both quotationId and quotationNumber.
+       * Cancelled invoices are also considered so that
+       * the same quotation cannot accidentally generate
+       * another invoice.
+       */
+      const existingQuotationInvoice = getInvoiceByQuotationReference(
+        quotation.id,
+        quotation.quotationNumber,
+      );
+
+      if (existingQuotationInvoice) {
+        navigate(`/invoices/${existingQuotationInvoice.id}`);
+
+        return;
+      }
+    }
+
+    /* -----------------------------------------------------
        VALIDATION
     ----------------------------------------------------- */
 
     if (!clientId) {
       setError("Please select a client.");
+
+      return;
+    }
+
+    if (!selectedClient) {
+      setError("Selected client could not be found.");
+
+      return;
+    }
+
+    if (!clientName.trim()) {
+      setError("Client name is required.");
 
       return;
     }
@@ -403,7 +474,7 @@ export default function AddInvoice() {
     }
 
     const validItems = items.filter(
-      (item) => item.serviceId && item.serviceName,
+      (item) => item.serviceId && item.serviceName.trim(),
     );
 
     if (validItems.length === 0) {
@@ -411,26 +482,6 @@ export default function AddInvoice() {
 
       return;
     }
-
-    /* -----------------------------------------------------
-       LATEST SETTINGS
-    ----------------------------------------------------- */
-
-    const latestSettings = getInvoiceSettings();
-
-    const latestPrefix = latestSettings.prefix.trim() || "INV-";
-
-    const latestSerial = Math.max(1, Number(latestSettings.nextNumber) || 1);
-
-    /*
-     * Always generate the final invoice number
-     * from the latest Settings value.
-     */
-
-    const finalInvoiceNumber = `${latestPrefix}${String(latestSerial).padStart(
-      3,
-      "0",
-    )}`;
 
     /* -----------------------------------------------------
        PREPARE ITEMS
@@ -462,56 +513,96 @@ export default function AddInvoice() {
        CREATE INVOICE
     ----------------------------------------------------- */
 
-    const invoice = createInvoice({
-      invoiceNumber: finalInvoiceNumber,
-
-      clientId: String(clientId),
-
-      clientName,
-
-      clientContactPerson: selectedClient?.contactPerson,
-
-      clientAddress: selectedClient?.address,
-
-      clientGstNumber: selectedClient?.gst,
-
-      clientEmail: selectedClient?.email,
-
-      clientPhone: selectedClient?.phone,
-
-      quotationId: quotation?.id,
-
-      quotationNumber: quotation?.quotationNumber,
-
-      invoiceDate,
-
-      dueDate: dueDate || undefined,
-
-      status,
-
-      items: preparedItems,
-
-      tax,
-
-      notes,
-    });
-
-    /* -----------------------------------------------------
-       UPDATE NEXT NUMBER
-    ----------------------------------------------------- */
-
     /*
-     * Increment only after successful invoice
-     * creation.
+     * IMPORTANT:
+     *
+     * invoiceNumber is intentionally NOT passed.
+     *
+     * createInvoice() is the single source of truth
+     * for invoice numbering.
+     *
+     * Quotation-created invoice:
+     *
+     * BDP-002-2026-001
+     *
+     * Quotation reference:
+     *
+     * QUO-009
+     *
+     * Renewal invoices use REN numbering from
+     * their respective renewal flow.
      */
 
-    updateNextInvoiceNumber(latestSerial + 1);
+    try {
+      const invoice = createInvoice({
+        clientId: String(clientId),
 
-    /* -----------------------------------------------------
-       NAVIGATE
-    ----------------------------------------------------- */
+        clientName,
 
-    navigate(`/invoices/${invoice.id}`);
+        clientContactPerson: selectedClient?.contactPerson,
+
+        clientAddress: selectedClient?.address,
+
+        clientGstNumber: selectedClient?.gst,
+
+        clientEmail: selectedClient?.email,
+
+        clientPhone: selectedClient?.phone,
+
+        /*
+         * Quotation reference is stored separately from
+         * invoice numbering.
+         *
+         * Invoice number remains BDP-...
+         */
+        quotationId: quotation?.id,
+
+        quotationNumber: quotation?.quotationNumber,
+
+        invoiceDate,
+
+        dueDate: dueDate || undefined,
+
+        status,
+
+        items: preparedItems,
+
+        tax,
+
+        notes,
+      });
+
+      /* ---------------------------------------------------
+         NAVIGATE TO CREATED INVOICE
+      --------------------------------------------------- */
+
+      navigate(`/invoices/${invoice.id}`);
+    } catch (creationError) {
+      /*
+       * createInvoice() also performs the duplicate check.
+       * This catch handles a duplicate detected between the
+       * UI check above and the actual save.
+       */
+      if (quotation) {
+        const existingQuotationInvoice = getInvoiceByQuotationReference(
+          quotation.id,
+          quotation.quotationNumber,
+        );
+
+        if (existingQuotationInvoice) {
+          navigate(`/invoices/${existingQuotationInvoice.id}`);
+
+          return;
+        }
+      }
+
+      const message =
+        creationError instanceof Error
+          ? creationError.message
+          : "Failed to create invoice.";
+
+      setError(message);
+    }
   }
 
   /* =======================================================
@@ -644,22 +735,12 @@ export default function AddInvoice() {
                 Client <span className="text-red-500">*</span>
               </label>
 
-              <select
+              <SearchableClientSelect
+                clients={clients}
                 value={clientId}
-                onChange={(event) => setClientId(event.target.value)}
-                required
-                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100"
-              >
-                <option value="">Select Client</option>
-
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.company}
-                    {" — "}
-                    {client.contactPerson}
-                  </option>
-                ))}
-              </select>
+                onChange={setClientId}
+                placeholder="Select Client"
+              />
             </div>
 
             {/* INVOICE NUMBER */}
@@ -671,13 +752,13 @@ export default function AddInvoice() {
 
               <input
                 type="text"
-                value={invoiceNumber}
+                value={invoiceNumberPreview}
                 readOnly
                 className="w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700"
               />
 
               <p className="mt-1 text-xs text-gray-400">
-                Generated from Settings → Invoice Settings.
+                Automatically generated from client, year and invoice type.
               </p>
             </div>
 
@@ -907,7 +988,7 @@ export default function AddInvoice() {
                       />
                     </td>
 
-                    {/* FINAL */}
+                    {/* FINAL COST */}
 
                     <td className="px-3 py-4">
                       <input

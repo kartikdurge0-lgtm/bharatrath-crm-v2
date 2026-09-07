@@ -1,3 +1,5 @@
+import { createActivityLog } from "./activityLogStore";
+
 export type RenewalStatus = "Upcoming" | "Due Soon" | "Overdue" | "Completed";
 
 export type Renewal = {
@@ -19,6 +21,9 @@ export type Renewal = {
   createdAt: string;
 
   completedAt?: string;
+
+  // Soft archive — record is never permanently deleted
+  isArchived?: boolean;
 };
 
 const STORAGE_KEY = "crm-renewals";
@@ -62,7 +67,9 @@ export function saveRenewals(renewals: Renewal[]): void {
 export function getRenewal(id: string): Renewal | null {
   const renewals = getRenewals();
 
-  return renewals.find((renewal) => renewal.id === id) || null;
+  return (
+    renewals.find((renewal) => renewal.id === id && !renewal.isArchived) || null
+  );
 }
 
 /* ---------------------------------------
@@ -98,11 +105,29 @@ export function generateRenewalId(): string {
 export function addRenewal(renewal: Renewal): Renewal {
   const renewals = getRenewals();
 
-  const updated = [...renewals, renewal];
+  const newRenewal: Renewal = {
+    ...renewal,
+    isArchived: false,
+  };
+
+  const updated = [...renewals, newRenewal];
 
   saveRenewals(updated);
 
-  return renewal;
+  /* ---------------------------------------
+     ACTIVITY: RENEWAL CREATED
+  --------------------------------------- */
+
+  void createActivityLog({
+    action: "CREATE",
+    module: "Renewals",
+    record_id: newRenewal.id,
+    record_name: `${newRenewal.clientName} - ${newRenewal.service}`,
+    description: `Created renewal for "${newRenewal.clientName}" - ${newRenewal.service}`,
+    new_data: newRenewal as unknown as Record<string, unknown>,
+  });
+
+  return newRenewal;
 }
 
 /* ---------------------------------------
@@ -115,26 +140,64 @@ export function updateRenewal(
 ): Renewal | null {
   const renewals = getRenewals();
 
-  let updatedRenewal: Renewal | null = null;
+  const index = renewals.findIndex(
+    (renewal) => renewal.id === id && !renewal.isArchived,
+  );
 
-  const updated = renewals.map((renewal) => {
-    if (renewal.id !== id) {
-      return renewal;
-    }
-
-    updatedRenewal = {
-      ...renewal,
-      ...updates,
-    };
-
-    return updatedRenewal;
-  });
-
-  if (!updatedRenewal) {
+  if (index === -1) {
     return null;
   }
 
-  saveRenewals(updated);
+  const existingRenewal = renewals[index];
+
+  const updatedRenewal: Renewal = {
+    ...existingRenewal,
+    ...updates,
+  };
+
+  renewals[index] = updatedRenewal;
+
+  saveRenewals(renewals);
+
+  const oldData = existingRenewal as unknown as Record<string, unknown>;
+
+  const newData = updatedRenewal as unknown as Record<string, unknown>;
+
+  const recordName = `${updatedRenewal.clientName} - ${updatedRenewal.service}`;
+
+  /* ---------------------------------------
+     ACTIVITY: STATUS CHANGED
+  --------------------------------------- */
+
+  if (existingRenewal.status !== updatedRenewal.status) {
+    void createActivityLog({
+      action: "STATUS_CHANGED",
+      module: "Renewals",
+      record_id: updatedRenewal.id,
+      record_name: recordName,
+      description: `Changed renewal "${recordName}" status from "${existingRenewal.status}" to "${updatedRenewal.status}"`,
+      old_data: oldData,
+      new_data: newData,
+    });
+  }
+
+  /* ---------------------------------------
+     ACTIVITY: GENERAL UPDATE
+  --------------------------------------- */
+
+  const updateKeys = Object.keys(updates).filter((key) => key !== "status");
+
+  if (updateKeys.length > 0) {
+    void createActivityLog({
+      action: "UPDATE",
+      module: "Renewals",
+      record_id: updatedRenewal.id,
+      record_name: recordName,
+      description: `Updated renewal "${recordName}"`,
+      old_data: oldData,
+      new_data: newData,
+    });
+  }
 
   return updatedRenewal;
 }
@@ -151,21 +214,48 @@ export function completeRenewal(id: string): Renewal | null {
 }
 
 /* ---------------------------------------
-   Delete renewal
+   Delete / Archive renewal
 --------------------------------------- */
 
 export function deleteRenewal(id: string): boolean {
   const renewals = getRenewals();
 
-  const exists = renewals.some((renewal) => renewal.id === id);
+  const index = renewals.findIndex(
+    (renewal) => renewal.id === id && !renewal.isArchived,
+  );
 
-  if (!exists) {
+  if (index === -1) {
     return false;
   }
 
-  const updated = renewals.filter((renewal) => renewal.id !== id);
+  const existingRenewal = renewals[index];
 
-  saveRenewals(updated);
+  /*
+   * SOFT DELETE
+   * Record remains in localStorage.
+   */
+  const archivedRenewal: Renewal = {
+    ...existingRenewal,
+    isArchived: true,
+  };
+
+  renewals[index] = archivedRenewal;
+
+  saveRenewals(renewals);
+
+  /* ---------------------------------------
+     ACTIVITY: ARCHIVE
+  --------------------------------------- */
+
+  void createActivityLog({
+    action: "ARCHIVE",
+    module: "Renewals",
+    record_id: archivedRenewal.id,
+    record_name: `${archivedRenewal.clientName} - ${archivedRenewal.service}`,
+    description: `Archived renewal "${archivedRenewal.clientName} - ${archivedRenewal.service}"`,
+    old_data: existingRenewal as unknown as Record<string, unknown>,
+    new_data: archivedRenewal as unknown as Record<string, unknown>,
+  });
 
   return true;
 }

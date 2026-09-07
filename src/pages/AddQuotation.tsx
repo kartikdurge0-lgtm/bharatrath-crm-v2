@@ -1,3 +1,8 @@
+/* =========================================================
+   ADD QUOTATION
+   Bharatrath CRM
+========================================================= */
+
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
@@ -12,9 +17,9 @@ import {
 } from "../data/quotationStore";
 
 import { getClients, type Client } from "../data/clientStore";
+import SearchableClientSelect from "../components/SearchableClientSelect";
 
 import { getLeads, getLead, type Lead } from "../data/leadStore";
-
 import { getServices, type Service } from "../data/serviceStore";
 
 import {
@@ -56,7 +61,7 @@ function currency(value: number): string {
 }
 
 /* =========================================================
-   QUOTATION NUMBERING
+   QUOTATION NUMBER SETTINGS
 ========================================================= */
 
 type QuotationNumberSettings = {
@@ -75,11 +80,17 @@ const defaultQuotationNumberSettings: QuotationNumberSettings = {
   terms: "",
 };
 
+/* =========================================================
+   GET SETTINGS
+========================================================= */
+
 function getQuotationNumberSettings(): QuotationNumberSettings {
   const saved = localStorage.getItem(QUOTATION_SETTINGS_KEY);
 
   if (!saved) {
-    return defaultQuotationNumberSettings;
+    return {
+      ...defaultQuotationNumberSettings,
+    };
   }
 
   try {
@@ -90,28 +101,90 @@ function getQuotationNumberSettings(): QuotationNumberSettings {
       ...parsed,
     };
   } catch {
-    return defaultQuotationNumberSettings;
+    return {
+      ...defaultQuotationNumberSettings,
+    };
   }
 }
 
-function getNextQuotationNumber(): string {
+/* =========================================================
+   GET NUMERIC PART
+========================================================= */
+
+function getQuotationNumericPart(
+  quotationNumber: string,
+  prefix: string,
+): number {
+  const safePrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const match = quotationNumber.match(new RegExp(`^${safePrefix}(\\d+)$`, "i"));
+
+  if (!match) {
+    return 0;
+  }
+
+  const number = Number(match[1]);
+
+  return Number.isFinite(number) ? number : 0;
+}
+
+/* =========================================================
+   GET SAFE NEXT NUMBER
+========================================================= */
+
+function getSafeNextQuotationNumber(): string {
   const settings = getQuotationNumberSettings();
 
   const prefix = settings.prefix.trim() || "QUO-";
 
-  const nextNumber = Math.max(1, Number(settings.nextNumber) || 1);
+  let nextNumber = Math.max(1, Number(settings.nextNumber) || 1);
+
+  const quotations = getQuotations();
+
+  let highestExistingNumber = 0;
+
+  for (const quotation of quotations) {
+    const quotationNumber = String(quotation.quotationNumber || "").trim();
+
+    const numericPart = getQuotationNumericPart(quotationNumber, prefix);
+
+    highestExistingNumber = Math.max(highestExistingNumber, numericPart);
+  }
+
+  if (highestExistingNumber >= nextNumber) {
+    nextNumber = highestExistingNumber + 1;
+  }
 
   return `${prefix}${String(nextNumber).padStart(3, "0")}`;
 }
 
-function incrementQuotationNumber(): void {
+/* =========================================================
+   INCREMENT NUMBER
+========================================================= */
+
+function incrementQuotationNumber(savedQuotationNumber?: string): void {
   const settings = getQuotationNumberSettings();
+
+  const prefix = settings.prefix.trim() || "QUO-";
 
   const currentNumber = Math.max(1, Number(settings.nextNumber) || 1);
 
+  let nextNumber = currentNumber + 1;
+
+  if (savedQuotationNumber) {
+    const savedNumericPart = getQuotationNumericPart(
+      savedQuotationNumber,
+      prefix,
+    );
+
+    if (savedNumericPart > 0) {
+      nextNumber = Math.max(nextNumber, savedNumericPart + 1);
+    }
+  }
+
   const updatedSettings: QuotationNumberSettings = {
     ...settings,
-    nextNumber: String(currentNumber + 1).padStart(3, "0"),
+    nextNumber: String(nextNumber).padStart(3, "0"),
   };
 
   localStorage.setItem(QUOTATION_SETTINGS_KEY, JSON.stringify(updatedSettings));
@@ -123,30 +196,26 @@ function incrementQuotationNumber(): void {
 
 export default function AddQuotation() {
   const navigate = useNavigate();
-
   const [searchParams] = useSearchParams();
 
-  /* -------------------------------------------------------
-     Data
-  ------------------------------------------------------- */
+  /* =======================================================
+     DATA
+  ======================================================= */
 
   const clients = useMemo<Client[]>(() => getClients(), []);
-
   const services = useMemo<Service[]>(() => getServices(), []);
 
   const [leads, setLeads] = useState<Lead[]>([]);
-
   const [selectedInitialLead, setSelectedInitialLead] = useState<Lead | null>(
     null,
   );
 
   const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
-
   const [loadingLeads, setLoadingLeads] = useState(true);
 
-  /* -------------------------------------------------------
-     Load Leads From Supabase
-  ------------------------------------------------------- */
+  /* =======================================================
+     LOAD LEADS
+  ======================================================= */
 
   useEffect(() => {
     let mounted = true;
@@ -175,16 +244,16 @@ export default function AddQuotation() {
       }
     }
 
-    loadLeads();
+    void loadLeads();
 
     return () => {
       mounted = false;
     };
   }, []);
 
-  /* -------------------------------------------------------
-     Load Sales Persons
-  ------------------------------------------------------- */
+  /* =======================================================
+     LOAD SALES PERSONS
+  ======================================================= */
 
   useEffect(() => {
     let mounted = true;
@@ -211,22 +280,22 @@ export default function AddQuotation() {
       }
     }
 
-    loadSalesPersons();
+    void loadSalesPersons();
 
     return () => {
       mounted = false;
     };
   }, []);
 
-  /* -------------------------------------------------------
-     URL Prefill
-  ------------------------------------------------------- */
+  /* =======================================================
+     URL PREFILL
+  ======================================================= */
 
   const initialLeadId = searchParams.get("leadId") || "";
 
-  /* -------------------------------------------------------
-     Load Initial Lead
-  ------------------------------------------------------- */
+  /* =======================================================
+     LOAD INITIAL LEAD
+  ======================================================= */
 
   useEffect(() => {
     let mounted = true;
@@ -252,47 +321,40 @@ export default function AddQuotation() {
       }
     }
 
-    loadInitialLead();
+    void loadInitialLead();
 
     return () => {
       mounted = false;
     };
   }, [initialLeadId]);
 
-  /* -------------------------------------------------------
-     Form State
-  ------------------------------------------------------- */
+  /* =======================================================
+     FORM STATE
+  ======================================================= */
 
   const [clientId, setClientId] = useState("");
-
   const [leadId, setLeadId] = useState(initialLeadId);
-
   const [salesPersonId, setSalesPersonId] = useState("");
 
   const [quotationDate, setQuotationDate] = useState(getToday());
 
   const [validUntil, setValidUntil] = useState("");
-
   const [status, setStatus] = useState<QuotationStatus>("Draft");
 
   const [items, setItems] = useState<QuotationItem[]>([emptyItem()]);
 
   const [tax, setTax] = useState(18);
 
-  /* -------------------------------------------------------
-     More Details
-  ------------------------------------------------------- */
+  /* =======================================================
+     MORE DETAILS
+  ======================================================= */
 
   const [showMoreDetails, setShowMoreDetails] = useState(false);
 
   const [scopeOfWork, setScopeOfWork] = useState("");
-
   const [implementationProcess, setImplementationProcess] = useState("");
-
   const [supportTraining, setSupportTraining] = useState("");
-
   const [remarks, setRemarks] = useState("");
-
   const [termsConditions, setTermsConditions] = useState("");
 
   const [error, setError] = useState("");
@@ -302,16 +364,10 @@ export default function AddQuotation() {
   ======================================================= */
 
   useEffect(() => {
-    /*
-     * For a new quotation, reuse the latest quotation's
-     * reusable commercial/details fields.
-     *
-     * Client, Lead, Sales Person, Services and quotation
-     * number are intentionally NOT copied.
-     */
-
     try {
-      const quotations = getQuotations();
+      const quotations = getQuotations().filter(
+        (quotation) => quotation.isArchived !== true,
+      );
 
       if (!quotations.length) {
         return;
@@ -354,7 +410,7 @@ export default function AddQuotation() {
       }
 
       if (typeof latestQuotation.tax === "number") {
-        setTax(latestQuotation.tax);
+        setTax(Math.min(100, Math.max(0, latestQuotation.tax)));
       }
     } catch (error) {
       console.error("Failed to load last quotation defaults:", error);
@@ -395,7 +451,6 @@ export default function AddQuotation() {
   );
 
   const clientName = selectedClient?.company || "";
-
   const leadName = selectedLead?.companyName || "";
 
   /* =======================================================
@@ -421,11 +476,6 @@ export default function AddQuotation() {
       if (!lead) {
         return;
       }
-
-      /*
-       * If the lead has already been converted,
-       * automatically select the linked client.
-       */
 
       if (lead.convertedClientId) {
         const convertedClient = clients.find(
@@ -473,19 +523,12 @@ export default function AddQuotation() {
 
         return {
           ...item,
-
           serviceId: String(service.id),
-
           description,
-
           sac,
-
           basicCost,
-
           discountedCost: 0,
-
           finalCost: basicCost,
-
           frequency,
         };
       }),
@@ -522,14 +565,14 @@ export default function AddQuotation() {
           return item;
         }
 
-        const actualDiscount = Math.min(discount, Number(item.basicCost) || 0);
+        const basicCost = Number(item.basicCost) || 0;
+
+        const actualDiscount = Math.min(discount, basicCost);
 
         return {
           ...item,
-
           discountedCost: actualDiscount,
-
-          finalCost: Math.max(0, Number(item.basicCost) - actualDiscount),
+          finalCost: Math.max(0, basicCost - actualDiscount),
         };
       }),
     );
@@ -567,11 +610,16 @@ export default function AddQuotation() {
     setError("");
 
     /* -----------------------------------------------------
-       Basic Validation
+       VALIDATION
     ----------------------------------------------------- */
 
     if (!clientId) {
       setError("Please select a client.");
+      return;
+    }
+
+    if (!selectedClient) {
+      setError("Selected client could not be found.");
       return;
     }
 
@@ -591,13 +639,41 @@ export default function AddQuotation() {
     }
 
     /* -----------------------------------------------------
-       Get Number From Settings
+       CLEAN ITEMS
     ----------------------------------------------------- */
 
-    const quotationNumber = getNextQuotationNumber();
+    const cleanedItems = items.map((item) => {
+      const basicCost = Math.max(0, Number(item.basicCost) || 0);
+
+      const discountedCost = Math.min(
+        basicCost,
+        Math.max(0, Number(item.discountedCost) || 0),
+      );
+
+      const finalCost = Math.max(0, basicCost - discountedCost);
+
+      return {
+        ...item,
+        basicCost,
+        discountedCost,
+        finalCost,
+      };
+    });
 
     /* -----------------------------------------------------
-       Create Quotation
+       FINAL TOTALS
+    ----------------------------------------------------- */
+
+    const finalTotals = calculateQuotationTotals(cleanedItems, tax);
+
+    /* -----------------------------------------------------
+       QUOTATION NUMBER
+    ----------------------------------------------------- */
+
+    const quotationNumber = getSafeNextQuotationNumber();
+
+    /* -----------------------------------------------------
+       CREATE QUOTATION
     ----------------------------------------------------- */
 
     const now = new Date().toISOString();
@@ -623,15 +699,15 @@ export default function AddQuotation() {
 
       status,
 
-      items,
+      items: cleanedItems,
 
       tax,
 
-      subtotal: totals.subtotal,
+      subtotal: finalTotals.subtotal,
 
-      taxAmount: totals.taxAmount,
+      taxAmount: finalTotals.taxAmount,
 
-      grandTotal: totals.grandTotal,
+      grandTotal: finalTotals.grandTotal,
 
       scopeOfWork,
 
@@ -649,20 +725,19 @@ export default function AddQuotation() {
     };
 
     /* -----------------------------------------------------
-       Save Quotation
+       SAVE
     ----------------------------------------------------- */
 
-    addQuotation(quotation);
-
-    /*
-     * Increment numbering only after quotation
-     * has been successfully added.
-     */
-
-    incrementQuotationNumber();
+    const savedQuotation = addQuotation(quotation);
 
     /* -----------------------------------------------------
-       Navigate
+       UPDATE NUMBER SETTINGS
+    ----------------------------------------------------- */
+
+    incrementQuotationNumber(savedQuotation.quotationNumber);
+
+    /* -----------------------------------------------------
+       NAVIGATE
     ----------------------------------------------------- */
 
     navigate("/quotations");
@@ -673,14 +748,16 @@ export default function AddQuotation() {
   ======================================================= */
 
   return (
-    <div className="space-y-6">
-      {/* ===================================================
+    <div className="mx-auto w-full max-w-[1200px] min-w-0 space-y-4 pb-8 sm:space-y-6">
+      {/* =================================================
           HEADER
-      =================================================== */}
+      ================================================= */}
 
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Add Quotation</h2>
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-xl font-bold text-gray-900 sm:text-2xl">
+            Add Quotation
+          </h2>
 
           <p className="mt-1 text-sm text-gray-500">
             Create a quotation for a client
@@ -690,29 +767,29 @@ export default function AddQuotation() {
         <button
           type="button"
           onClick={() => navigate("/quotations")}
-          className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="w-full shrink-0 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 sm:w-auto"
         >
           ← Back to Quotations
         </button>
       </div>
 
-      {/* ===================================================
+      {/* =================================================
           ERROR
-      =================================================== */}
+      ================================================= */}
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="break-safe rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700 sm:px-4">
           {error}
         </div>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} className="min-w-0">
         {/* =================================================
             BASIC INFORMATION
         ================================================= */}
 
-        <section className="mb-6 rounded-xl border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-100 px-6 py-5">
+        <section className="mb-4 min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm sm:mb-6">
+          <div className="border-b border-gray-100 px-4 py-4 sm:px-6 sm:py-5">
             <h2 className="font-semibold text-gray-900">
               Quotation Information
             </h2>
@@ -722,43 +799,33 @@ export default function AddQuotation() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-5 p-6 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 p-4 sm:gap-5 sm:p-6 md:grid-cols-2">
             {/* CLIENT */}
 
-            <div className="md:col-span-2">
+            <div className="min-w-0 md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Client <span className="text-red-500">*</span>
               </label>
 
-              <select
+              <SearchableClientSelect
+                clients={clients}
                 value={clientId}
-                onChange={(event) => setClientId(event.target.value)}
-                required
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
-              >
-                <option value="">Select Client</option>
-
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.company}
-                    {" — "}
-                    {client.contactPerson}
-                  </option>
-                ))}
-              </select>
+                onChange={setClientId}
+                placeholder="Select Client"
+              />
             </div>
 
             {/* LEAD */}
 
-            <div>
+            <div className="min-w-0">
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Related Lead
               </label>
 
               <select
                 value={leadId}
-                onChange={(event) => handleLeadChange(event.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                onChange={(event) => void handleLeadChange(event.target.value)}
+                className="w-full min-w-0 rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
               >
                 <option value="">
                   {loadingLeads
@@ -768,21 +835,21 @@ export default function AddQuotation() {
 
                 {leads.map((lead) => (
                   <option key={lead.id} value={lead.id}>
-                    {lead.id}
-                    {" — "}
-                    {lead.companyName}
+                    {lead.id} — {lead.companyName}
                   </option>
                 ))}
               </select>
 
               {selectedLead && (
-                <p className="mt-1 text-xs text-gray-500">Lead: {leadName}</p>
+                <p className="mt-1 truncate text-xs text-gray-500">
+                  Lead: {leadName}
+                </p>
               )}
             </div>
 
             {/* SALES PERSON */}
 
-            <div>
+            <div className="min-w-0">
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Sales Person
               </label>
@@ -790,15 +857,13 @@ export default function AddQuotation() {
               <select
                 value={salesPersonId}
                 onChange={(event) => setSalesPersonId(event.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                className="w-full min-w-0 rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
               >
                 <option value="">Select Sales Person</option>
 
                 {salesPersons.map((person) => (
                   <option key={person.id} value={person.id}>
-                    {person.name}
-                    {" — "}
-                    {person.type}
+                    {person.name} — {person.type}
                   </option>
                 ))}
               </select>
@@ -806,7 +871,7 @@ export default function AddQuotation() {
 
             {/* QUOTATION NUMBER */}
 
-            <div>
+            <div className="min-w-0">
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Quotation Number
               </label>
@@ -815,14 +880,14 @@ export default function AddQuotation() {
                 Auto Generated
               </div>
 
-              <p className="mt-1 text-xs text-gray-400">
-                Number is generated from Settings → Quotation Settings.
+              <p className="mt-1 break-safe text-xs text-gray-400">
+                Number is generated automatically from Quotation Settings.
               </p>
             </div>
 
             {/* STATUS */}
 
-            <div>
+            <div className="min-w-0">
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Status
               </label>
@@ -835,16 +900,20 @@ export default function AddQuotation() {
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm"
               >
                 <option value="Draft">Draft</option>
+
                 <option value="Sent">Sent</option>
+
                 <option value="Accepted">Accepted</option>
+
                 <option value="Rejected">Rejected</option>
+
                 <option value="Expired">Expired</option>
               </select>
             </div>
 
             {/* DATE */}
 
-            <div>
+            <div className="min-w-0">
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Quotation Date <span className="text-red-500">*</span>
               </label>
@@ -854,13 +923,13 @@ export default function AddQuotation() {
                 value={quotationDate}
                 onChange={(event) => setQuotationDate(event.target.value)}
                 required
-                className="w-full rounded-lg border border-gray-300 px-3 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                className="w-full min-w-0 rounded-lg border border-gray-300 px-3 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
               />
             </div>
 
             {/* VALID UNTIL */}
 
-            <div>
+            <div className="min-w-0">
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Valid Until
               </label>
@@ -870,7 +939,7 @@ export default function AddQuotation() {
                 value={validUntil}
                 min={quotationDate}
                 onChange={(event) => setValidUntil(event.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-3 text-sm"
+                className="w-full min-w-0 rounded-lg border border-gray-300 px-3 py-3 text-sm"
               />
             </div>
           </div>
@@ -880,9 +949,9 @@ export default function AddQuotation() {
             SERVICES
         ================================================= */}
 
-        <section className="mb-6 rounded-xl border border-gray-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
-            <div>
+        <section className="mb-4 min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm sm:mb-6">
+          <div className="flex min-w-0 flex-col gap-3 border-b border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
+            <div className="min-w-0">
               <h2 className="font-semibold text-gray-900">Services</h2>
 
               <p className="mt-1 text-sm text-gray-500">
@@ -893,14 +962,14 @@ export default function AddQuotation() {
             <button
               type="button"
               onClick={addItem}
-              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+              className="w-full shrink-0 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-green-700 sm:w-auto"
             >
               + Add Service
             </button>
           </div>
 
-          <div className="overflow-x-auto p-6">
-            <table className="min-w-[1100px] w-full">
+          <div className="overflow-x-auto p-3 sm:p-6">
+            <table className="w-full min-w-[1100px]">
               <thead>
                 <tr className="bg-green-600 text-white">
                   <th className="px-3 py-3 text-center text-sm">#</th>
@@ -925,10 +994,15 @@ export default function AddQuotation() {
 
               <tbody>
                 {items.map((item, index) => (
-                  <tr key={index} className="border-b border-gray-100">
+                  <tr
+                    key={`${item.serviceId}-${index}`}
+                    className="border-b border-gray-100"
+                  >
                     <td className="px-3 py-4 text-center text-sm">
                       {index + 1}
                     </td>
+
+                    {/* SERVICE */}
 
                     <td className="px-3 py-4">
                       <select
@@ -951,6 +1025,8 @@ export default function AddQuotation() {
                       </select>
                     </td>
 
+                    {/* DESCRIPTION */}
+
                     <td className="px-3 py-4">
                       <input
                         type="text"
@@ -963,6 +1039,8 @@ export default function AddQuotation() {
                       />
                     </td>
 
+                    {/* SAC */}
+
                     <td className="px-3 py-4">
                       <input
                         type="text"
@@ -972,6 +1050,8 @@ export default function AddQuotation() {
                       />
                     </td>
 
+                    {/* BASIC COST */}
+
                     <td className="px-3 py-4">
                       <input
                         type="number"
@@ -980,6 +1060,8 @@ export default function AddQuotation() {
                         className="w-[120px] rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-right text-sm"
                       />
                     </td>
+
+                    {/* DISCOUNT */}
 
                     <td className="px-3 py-4">
                       <input
@@ -995,6 +1077,8 @@ export default function AddQuotation() {
                       />
                     </td>
 
+                    {/* FINAL COST */}
+
                     <td className="px-3 py-4">
                       <input
                         type="number"
@@ -1004,6 +1088,8 @@ export default function AddQuotation() {
                       />
                     </td>
 
+                    {/* FREQUENCY */}
+
                     <td className="px-3 py-4">
                       <input
                         type="text"
@@ -1012,6 +1098,8 @@ export default function AddQuotation() {
                         className="w-[110px] rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm"
                       />
                     </td>
+
+                    {/* ACTION */}
 
                     <td className="px-3 py-4 text-center">
                       <button
@@ -1029,17 +1117,19 @@ export default function AddQuotation() {
             </table>
           </div>
 
-          {/* TOTALS */}
+          {/* =================================================
+              TOTALS
+          ================================================= */}
 
-          <div className="flex justify-end border-t border-gray-100 p-6">
-            <div className="w-full max-w-sm">
-              <div className="flex justify-between border-b py-3 text-sm">
+          <div className="border-t border-gray-100 p-4 sm:p-6">
+            <div className="ml-auto w-full max-w-sm">
+              <div className="flex items-center justify-between gap-4 border-b py-3 text-sm">
                 <span>Subtotal</span>
 
                 <span className="font-medium">{currency(totals.subtotal)}</span>
               </div>
 
-              <div className="flex items-center justify-between border-b py-3 text-sm">
+              <div className="flex items-center justify-between gap-4 border-b py-3 text-sm">
                 <span>GST (%)</span>
 
                 <input
@@ -1060,10 +1150,12 @@ export default function AddQuotation() {
                 />
               </div>
 
-              <div className="flex justify-between py-4 text-lg font-bold text-gray-900">
+              <div className="flex items-center justify-between gap-4 py-4 text-lg font-bold text-gray-900">
                 <span>Grand Total</span>
 
-                <span>{currency(totals.grandTotal)}</span>
+                <span className="whitespace-nowrap">
+                  {currency(totals.grandTotal)}
+                </span>
               </div>
             </div>
           </div>
@@ -1073,13 +1165,13 @@ export default function AddQuotation() {
             MORE DETAILS
         ================================================= */}
 
-        <section className="mb-6 rounded-xl border border-gray-200 bg-white shadow-sm">
+        <section className="mb-4 min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm sm:mb-6">
           <button
             type="button"
             onClick={() => setShowMoreDetails((current) => !current)}
-            className="flex w-full items-center justify-between px-6 py-5 text-left"
+            className="flex w-full min-w-0 items-center justify-between gap-4 px-4 py-4 text-left sm:px-6 sm:py-5"
           >
-            <div>
+            <div className="min-w-0">
               <h2 className="font-semibold text-gray-900">More Details</h2>
 
               <p className="mt-1 text-sm text-gray-500">
@@ -1087,13 +1179,15 @@ export default function AddQuotation() {
               </p>
             </div>
 
-            <span className="text-xl text-gray-500">
+            <span className="shrink-0 text-xl text-gray-500">
               {showMoreDetails ? "−" : "+"}
             </span>
           </button>
 
           {showMoreDetails && (
-            <div className="space-y-6 border-t border-gray-100 p-6">
+            <div className="space-y-5 border-t border-gray-100 p-4 sm:space-y-6 sm:p-6">
+              {/* SCOPE */}
+
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
                   Scope of Work
@@ -1104,9 +1198,11 @@ export default function AddQuotation() {
                   value={scopeOfWork}
                   onChange={(event) => setScopeOfWork(event.target.value)}
                   placeholder="Enter scope of work..."
-                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                  className="w-full min-w-0 rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
                 />
               </div>
+
+              {/* IMPLEMENTATION */}
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -1120,9 +1216,11 @@ export default function AddQuotation() {
                     setImplementationProcess(event.target.value)
                   }
                   placeholder="Enter implementation process..."
-                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                  className="w-full min-w-0 rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
                 />
               </div>
+
+              {/* SUPPORT */}
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -1134,9 +1232,11 @@ export default function AddQuotation() {
                   value={supportTraining}
                   onChange={(event) => setSupportTraining(event.target.value)}
                   placeholder="Enter support and training details..."
-                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                  className="w-full min-w-0 rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
                 />
               </div>
+
+              {/* REMARKS */}
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -1148,9 +1248,11 @@ export default function AddQuotation() {
                   value={remarks}
                   onChange={(event) => setRemarks(event.target.value)}
                   placeholder="Enter remarks..."
-                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                  className="w-full min-w-0 rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
                 />
               </div>
+
+              {/* TERMS */}
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -1162,7 +1264,7 @@ export default function AddQuotation() {
                   value={termsConditions}
                   onChange={(event) => setTermsConditions(event.target.value)}
                   placeholder="Enter terms and conditions..."
-                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                  className="w-full min-w-0 rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
                 />
               </div>
             </div>
@@ -1173,10 +1275,10 @@ export default function AddQuotation() {
             ACTIONS
         ================================================= */}
 
-        <div className="mb-10 flex gap-3">
+        <div className="mb-6 flex flex-col gap-3 sm:mb-10 sm:flex-row">
           <button
             type="submit"
-            className="rounded-lg bg-green-600 px-6 py-3 text-sm font-semibold text-white hover:bg-green-700"
+            className="w-full rounded-lg bg-green-600 px-6 py-3 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
           >
             Save Quotation
           </button>
@@ -1184,7 +1286,7 @@ export default function AddQuotation() {
           <button
             type="button"
             onClick={() => navigate("/quotations")}
-            className="rounded-lg border border-gray-300 bg-white px-6 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            className="w-full rounded-lg border border-gray-300 bg-white px-6 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 sm:w-auto"
           >
             Cancel
           </button>

@@ -667,13 +667,15 @@ export default function InvoiceDetails() {
             ← Back
           </button>
 
-          <button
-            type="button"
-            onClick={() => navigate(`/invoices/${invoice.id}/edit`)}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Edit
-          </button>
+          {invoice.status !== "Cancelled" && (
+            <button
+              type="button"
+              onClick={() => navigate(`/invoices/${invoice.id}/edit`)}
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Edit
+            </button>
+          )}
 
           {payment.balance > 0 && invoice.status !== "Cancelled" && (
             <button
@@ -847,8 +849,8 @@ export default function InvoiceDetails() {
 
         {/* RELATED QUOTATION */}
 
-        {quotation && (
-          <div className="mt-4 rounded-lg border border-gray-300 px-5 py-3 print:hidden">
+        {(invoice.quotationId || invoice.quotationNumber) && (
+          <div className="mt-4 rounded-lg border border-gray-300 px-5 py-3">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-[11px] font-semibold uppercase text-gray-500">
@@ -856,21 +858,27 @@ export default function InvoiceDetails() {
                 </p>
 
                 <p className="mt-1 text-sm font-semibold text-gray-900">
-                  {invoice.quotationNumber || quotation.quotationNumber}
+                  {invoice.quotationNumber ||
+                    quotation?.quotationNumber ||
+                    "Quotation Reference"}
                 </p>
 
-                <p className="mt-1 text-xs text-gray-600">
-                  Quotation Date: {formatDate(quotation.quotationDate)}
-                </p>
+                {quotation?.quotationDate && (
+                  <p className="mt-1 text-xs text-gray-600">
+                    Quotation Date: {formatDate(quotation.quotationDate)}
+                  </p>
+                )}
               </div>
 
-              <button
-                type="button"
-                onClick={() => navigate(`/quotations/${quotation.id}`)}
-                className="text-xs font-semibold text-green-700 hover:underline"
-              >
-                View Quotation →
-              </button>
+              {quotation && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/quotations/${quotation.id}`)}
+                  className="text-xs font-semibold text-green-700 hover:underline"
+                >
+                  View Quotation →
+                </button>
+              )}
             </div>
           </div>
         )}

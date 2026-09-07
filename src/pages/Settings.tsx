@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 import { getActivityLogs, type ActivityLog } from "../data/activityLogStore";
 
@@ -65,6 +65,8 @@ type PreferenceSettings = {
   currency: string;
   dateFormat: string;
 };
+
+const PAGE_SIZE = 6;
 
 const BUSINESS_KEY = "crm-settings-business";
 const INVOICE_KEY = "crm-settings-invoice";
@@ -135,6 +137,22 @@ function saveSetting<T>(key: string, value: T): void {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+/* --------------------------------
+   Activity sorting
+   Latest activity first
+-------------------------------- */
+
+function sortActivityLogsLatestFirst(a: ActivityLog, b: ActivityLog): number {
+  const dateA = new Date(a.created_at).getTime();
+  const dateB = new Date(b.created_at).getTime();
+
+  if (dateA !== dateB) {
+    return dateB - dateA;
+  }
+
+  return String(b.id).localeCompare(String(a.id));
+}
+
 export default function Settings() {
   const [activeSection, setActiveSection] =
     useState<SettingsSection>("business");
@@ -173,6 +191,8 @@ export default function Settings() {
   const [activityActionFilter, setActivityActionFilter] =
     useState("All Actions");
 
+  const [activityCurrentPage, setActivityCurrentPage] = useState(1);
+
   const [newPaymentMode, setNewPaymentMode] = useState("");
 
   const [showSalesPersonForm, setShowSalesPersonForm] = useState(false);
@@ -193,32 +213,38 @@ export default function Settings() {
   const [message, setMessage] = useState("");
 
   /* --------------------------------
-     Load active sales persons
+     Load data
   -------------------------------- */
 
   const refreshActivityLogs = async () => {
     try {
       const logs = await getActivityLogs();
+
       setActivityLogs(logs);
+      setActivityCurrentPage(1);
     } catch (error) {
       console.error("Failed to load activity logs:", error);
+
       setActivityLogs([]);
+      setActivityCurrentPage(1);
     }
   };
 
   const refreshSalesPersons = async () => {
     try {
       const persons = await getActiveSalesPersons();
+
       setSalesPersons(persons);
     } catch (error) {
       console.error("Failed to load sales persons:", error);
+
       setSalesPersons([]);
     }
   };
 
   useEffect(() => {
-    refreshSalesPersons();
-    refreshActivityLogs();
+    void refreshSalesPersons();
+    void refreshActivityLogs();
   }, []);
 
   /* --------------------------------
@@ -345,7 +371,9 @@ export default function Settings() {
         await refreshSalesPersons();
 
         resetSalesPersonForm();
+
         showSaved("Sales Person updated successfully.");
+
         return;
       }
 
@@ -362,9 +390,11 @@ export default function Settings() {
       await refreshSalesPersons();
 
       resetSalesPersonForm();
+
       showSaved("Sales Person added successfully.");
     } catch (error) {
       console.error("Failed to save sales person:", error);
+
       setMessage("Failed to save Sales Person. Please try again.");
     }
   };
@@ -378,11 +408,13 @@ export default function Settings() {
 
     try {
       await deactivateSalesPerson(person.id);
+
       await refreshSalesPersons();
 
       showSaved("Sales Person deactivated.");
     } catch (error) {
       console.error("Failed to deactivate sales person:", error);
+
       setMessage("Failed to deactivate Sales Person. Please try again.");
     }
   };
@@ -428,6 +460,10 @@ export default function Settings() {
     });
   };
 
+  /* --------------------------------
+     Activity filters
+  -------------------------------- */
+
   const activityUsers = useMemo(() => {
     const users = activityLogs
       .map((log) => log.user_name || log.user_email || "Unknown User")
@@ -446,33 +482,40 @@ export default function Settings() {
     [activityLogs],
   );
 
+  /* --------------------------------
+     Activity
+     Filter → Sort
+  -------------------------------- */
+
   const filteredActivityLogs = useMemo(() => {
     const search = activitySearch.trim().toLowerCase();
 
-    return activityLogs.filter((log) => {
-      const user = log.user_name || log.user_email || "Unknown User";
+    return activityLogs
+      .filter((log) => {
+        const user = log.user_name || log.user_email || "Unknown User";
 
-      const matchesSearch =
-        !search ||
-        user.toLowerCase().includes(search) ||
-        (log.user_email || "").toLowerCase().includes(search) ||
-        (log.description || "").toLowerCase().includes(search) ||
-        (log.record_id || "").toLowerCase().includes(search) ||
-        (log.record_name || "").toLowerCase().includes(search);
+        const matchesSearch =
+          !search ||
+          user.toLowerCase().includes(search) ||
+          (log.user_email || "").toLowerCase().includes(search) ||
+          (log.description || "").toLowerCase().includes(search) ||
+          (log.record_id || "").toLowerCase().includes(search) ||
+          (log.record_name || "").toLowerCase().includes(search);
 
-      const matchesUser =
-        activityUserFilter === "All Users" || user === activityUserFilter;
+        const matchesUser =
+          activityUserFilter === "All Users" || user === activityUserFilter;
 
-      const matchesModule =
-        activityModuleFilter === "All Modules" ||
-        log.module === activityModuleFilter;
+        const matchesModule =
+          activityModuleFilter === "All Modules" ||
+          log.module === activityModuleFilter;
 
-      const matchesAction =
-        activityActionFilter === "All Actions" ||
-        log.action === activityActionFilter;
+        const matchesAction =
+          activityActionFilter === "All Actions" ||
+          log.action === activityActionFilter;
 
-      return matchesSearch && matchesUser && matchesModule && matchesAction;
-    });
+        return matchesSearch && matchesUser && matchesModule && matchesAction;
+      })
+      .sort(sortActivityLogsLatestFirst);
   }, [
     activityLogs,
     activitySearch,
@@ -480,6 +523,79 @@ export default function Settings() {
     activityModuleFilter,
     activityActionFilter,
   ]);
+
+  /* --------------------------------
+     Reset activity pagination
+  -------------------------------- */
+
+  useEffect(() => {
+    setActivityCurrentPage(1);
+  }, [
+    activitySearch,
+    activityUserFilter,
+    activityModuleFilter,
+    activityActionFilter,
+  ]);
+
+  /* --------------------------------
+     Activity pagination
+  -------------------------------- */
+
+  const activityTotalPages = Math.ceil(filteredActivityLogs.length / PAGE_SIZE);
+
+  useEffect(() => {
+    if (activityTotalPages === 0 && activityCurrentPage !== 1) {
+      setActivityCurrentPage(1);
+      return;
+    }
+
+    if (activityTotalPages > 0 && activityCurrentPage > activityTotalPages) {
+      setActivityCurrentPage(activityTotalPages);
+    }
+  }, [activityCurrentPage, activityTotalPages]);
+
+  const paginatedActivityLogs = useMemo(() => {
+    const startIndex = (activityCurrentPage - 1) * PAGE_SIZE;
+
+    return filteredActivityLogs.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [filteredActivityLogs, activityCurrentPage]);
+
+  /* --------------------------------
+     Activity page numbers
+  -------------------------------- */
+
+  const activityPageNumbers = useMemo(() => {
+    if (activityTotalPages <= 5) {
+      return Array.from(
+        { length: activityTotalPages },
+        (_, index) => index + 1,
+      );
+    }
+
+    const pages = new Set<number>();
+
+    pages.add(1);
+    pages.add(2);
+    pages.add(activityTotalPages - 1);
+    pages.add(activityTotalPages);
+    pages.add(activityCurrentPage);
+
+    if (activityCurrentPage > 1) {
+      pages.add(activityCurrentPage - 1);
+    }
+
+    if (activityCurrentPage < activityTotalPages) {
+      pages.add(activityCurrentPage + 1);
+    }
+
+    return Array.from(pages)
+      .filter((page) => page >= 1 && page <= activityTotalPages)
+      .sort((a, b) => a - b);
+  }, [activityCurrentPage, activityTotalPages]);
+
+  /* --------------------------------
+     Sections
+  -------------------------------- */
 
   const sections: {
     key: SettingsSection;
@@ -544,9 +660,10 @@ export default function Settings() {
   ];
 
   return (
-    <div className="min-h-full bg-slate-50">
+    <div className="min-h-full min-w-0 bg-slate-50">
       {/* PAGE HEADER */}
-      <div className="mb-5">
+
+      <div className="mb-5 min-w-0">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">
           Settings
         </h1>
@@ -556,70 +673,79 @@ export default function Settings() {
         </p>
       </div>
 
-      {/* SUCCESS / ERROR MESSAGE */}
+      {/* MESSAGE */}
+
       {message && (
-        <div className="mb-5 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+        <div className="mb-5 break-words rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
           ✓ {message}
         </div>
       )}
 
       {/* MAIN SETTINGS LAYOUT */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
+
+      <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
         {/* LEFT NAVIGATION */}
-        <aside className="h-fit rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
+
+        <aside className="min-w-0 h-fit rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
           <div className="mb-2 px-3 py-2">
             <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
               Settings
             </div>
           </div>
 
-          {sections.map((section) => {
-            const active = activeSection === section.key;
+          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-1">
+            {sections.map((section) => {
+              const active = activeSection === section.key;
 
-            return (
-              <button
-                key={section.key}
-                type="button"
-                onClick={() => setActiveSection(section.key)}
-                className={`mb-1 w-full rounded-lg px-3 py-2.5 text-left transition ${
-                  active
-                    ? "bg-green-50 text-green-700"
-                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <span
-                    className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-base ${
-                      active
-                        ? "bg-white text-green-600"
-                        : "bg-slate-50 text-slate-500"
-                    }`}
-                  >
-                    {section.icon}
-                  </span>
-
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold">{section.label}</div>
-
-                    <div
-                      className={`mt-0.5 text-[11px] leading-4 ${
-                        active ? "text-green-600/70" : "text-slate-400"
+              return (
+                <button
+                  key={section.key}
+                  type="button"
+                  onClick={() => setActiveSection(section.key)}
+                  className={`w-full min-w-0 rounded-lg px-3 py-2.5 text-left transition ${
+                    active
+                      ? "bg-green-50 text-green-700"
+                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                  }`}
+                >
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span
+                      className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-base ${
+                        active
+                          ? "bg-white text-green-600"
+                          : "bg-slate-50 text-slate-500"
                       }`}
                     >
-                      {section.description}
+                      {section.icon}
+                    </span>
+
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold">
+                        {section.label}
+                      </div>
+
+                      <div
+                        className={`mt-0.5 text-[11px] leading-4 ${
+                          active ? "text-green-600/70" : "text-slate-400"
+                        }`}
+                      >
+                        {section.description}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })}
+          </div>
         </aside>
 
         {/* RIGHT CONTENT */}
-        <div className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm">
+
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           {/* BUSINESS PROFILE */}
+
           {activeSection === "business" && (
-            <section className="p-5 md:p-6">
+            <section className="p-4 sm:p-5 md:p-6">
               <SectionHeader
                 title="Business Profile"
                 description="Basic information used throughout the CRM."
@@ -714,9 +840,10 @@ export default function Settings() {
           )}
 
           {/* TEAM */}
+
           {activeSection === "team" && (
-            <section className="p-5 md:p-6">
-              <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
+            <section className="p-4 sm:p-5 md:p-6">
+              <div className="flex min-w-0 flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
                 <SectionHeader
                   title="Team & Sales Persons"
                   description="Manage internal team members and external referral / sales persons."
@@ -726,29 +853,28 @@ export default function Settings() {
                 <button
                   type="button"
                   onClick={openAddSalesPerson}
-                  className="shrink-0 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-green-700"
+                  className="w-full shrink-0 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-green-700 sm:w-auto"
                 >
                   + Add Sales Person
                 </button>
               </div>
 
-              {/* SALES PERSON FORM */}
               {showSalesPersonForm && (
-                <div className="mt-5 rounded-xl border border-green-200 bg-green-50/60 p-5">
+                <div className="mt-5 min-w-0 rounded-xl border border-green-200 bg-green-50/60 p-4 sm:p-5">
                   <div className="mb-5">
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-100 text-green-700">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 text-green-700">
                         👤
                       </span>
 
-                      <div>
+                      <div className="min-w-0">
                         <h3 className="font-semibold text-slate-900">
                           {editingSalesPersonId
                             ? "Edit Sales Person"
                             : "Add Sales Person"}
                         </h3>
 
-                        <p className="mt-0.5 text-xs text-slate-500">
+                        <p className="mt-0.5 break-words text-xs text-slate-500">
                           Staff / Part-time are internal CRM users. External is
                           for referral or commission sources.
                         </p>
@@ -830,7 +956,7 @@ export default function Settings() {
                     </div>
                   </div>
 
-                  <div className="mt-5 flex flex-wrap gap-2">
+                  <div className="mt-5 flex flex-col gap-2 sm:flex-row">
                     <button
                       type="button"
                       onClick={saveSalesPerson}
@@ -852,45 +978,44 @@ export default function Settings() {
                 </div>
               )}
 
-              {/* ACTIVE SALES PERSONS */}
-              <div className="mt-5">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
+              <div className="mt-5 min-w-0">
+                <div className="mb-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
                     <h3 className="font-semibold text-slate-900">
                       Active Sales Persons
                     </h3>
 
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 break-words text-xs text-slate-500">
                       These persons appear in Lead and Quotation selections.
                     </p>
                   </div>
 
-                  <span className="shrink-0 rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700">
+                  <span className="w-fit shrink-0 rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700">
                     {salesPersons.length} Active
                   </span>
                 </div>
 
                 <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="min-w-full text-sm">
+                  <table className="min-w-[780px] w-full text-sm">
                     <thead className="bg-[#F4F7FA]">
                       <tr>
-                        <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                        <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
                           Name
                         </th>
 
-                        <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                        <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
                           Type
                         </th>
 
-                        <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                        <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
                           Mobile
                         </th>
 
-                        <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                        <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
                           Commission
                         </th>
 
-                        <th className="px-4 py-3 text-right font-semibold text-slate-700">
+                        <th className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-700">
                           Actions
                         </th>
                       </tr>
@@ -912,29 +1037,35 @@ export default function Settings() {
                             key={person.id}
                             className="border-t border-slate-100 hover:bg-slate-50/60"
                           >
-                            <td className="px-4 py-3">
-                              <div className="font-semibold text-slate-900">
+                            <td className="max-w-[260px] px-4 py-3">
+                              <div
+                                className="truncate font-semibold text-slate-900"
+                                title={person.name}
+                              >
                                 {person.name}
                               </div>
 
                               {person.email && (
-                                <div className="mt-0.5 text-xs text-slate-400">
+                                <div
+                                  className="mt-0.5 max-w-[240px] truncate text-xs text-slate-400"
+                                  title={person.email}
+                                >
                                   {person.email}
                                 </div>
                               )}
                             </td>
 
-                            <td className="px-4 py-3">
+                            <td className="whitespace-nowrap px-4 py-3">
                               <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
                                 {person.type}
                               </span>
                             </td>
 
-                            <td className="px-4 py-3 text-slate-600">
+                            <td className="whitespace-nowrap px-4 py-3 text-slate-600">
                               {person.mobile || "-"}
                             </td>
 
-                            <td className="px-4 py-3 font-medium text-slate-700">
+                            <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-700">
                               {person.commissionPercent}%
                             </td>
 
@@ -968,8 +1099,9 @@ export default function Settings() {
           )}
 
           {/* INVOICE */}
+
           {activeSection === "invoice" && (
-            <section className="p-5 md:p-6">
+            <section className="p-4 sm:p-5 md:p-6">
               <SectionHeader
                 title="Invoice Settings"
                 description="Configure invoice numbering and default invoice values."
@@ -1057,8 +1189,9 @@ export default function Settings() {
           )}
 
           {/* QUOTATION */}
+
           {activeSection === "quotation" && (
-            <section className="p-5 md:p-6">
+            <section className="p-4 sm:p-5 md:p-6">
               <SectionHeader
                 title="Quotation Settings"
                 description="Configure quotation numbering and validity."
@@ -1134,8 +1267,9 @@ export default function Settings() {
           )}
 
           {/* PAYMENT */}
+
           {activeSection === "payment" && (
-            <section className="p-5 md:p-6">
+            <section className="p-4 sm:p-5 md:p-6">
               <SectionHeader
                 title="Payment Settings"
                 description="Manage available payment modes and defaults."
@@ -1192,7 +1326,7 @@ export default function Settings() {
                   ))}
                 </div>
 
-                <div className="flex max-w-md gap-2">
+                <div className="flex w-full max-w-md gap-2">
                   <input
                     value={newPaymentMode}
                     onChange={(e) => setNewPaymentMode(e.target.value)}
@@ -1208,7 +1342,7 @@ export default function Settings() {
                   <button
                     type="button"
                     onClick={addPaymentMode}
-                    className="rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+                    className="shrink-0 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
                   >
                     Add
                   </button>
@@ -1220,8 +1354,9 @@ export default function Settings() {
           )}
 
           {/* NOTIFICATIONS */}
+
           {activeSection === "notifications" && (
-            <section className="p-5 md:p-6">
+            <section className="p-4 sm:p-5 md:p-6">
               <SectionHeader
                 title="Reminder Settings"
                 description="Control CRM reminder preferences."
@@ -1274,8 +1409,9 @@ export default function Settings() {
           )}
 
           {/* PREFERENCES */}
+
           {activeSection === "preferences" && (
-            <section className="p-5 md:p-6">
+            <section className="p-4 sm:p-5 md:p-6">
               <SectionHeader
                 title="Preferences"
                 description="Set your language, currency and date format."
@@ -1325,9 +1461,10 @@ export default function Settings() {
           )}
 
           {/* ACTIVITY HISTORY */}
+
           {activeSection === "activity" && (
-            <section className="p-5 md:p-6">
-              <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
+            <section className="p-4 sm:p-5 md:p-6">
+              <div className="flex min-w-0 flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
                 <SectionHeader
                   title="Activity History"
                   description="Track important CRM activities performed by logged-in users."
@@ -1337,26 +1474,29 @@ export default function Settings() {
                 <button
                   type="button"
                   onClick={refreshActivityLogs}
-                  className="shrink-0 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  className="w-full shrink-0 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:w-auto"
                 >
                   ↻ Refresh
                 </button>
               </div>
+
+              {/* FILTERS */}
 
               <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <input
                   value={activitySearch}
                   onChange={(e) => setActivitySearch(e.target.value)}
                   placeholder="Search activity..."
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
+                  className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
                 />
 
                 <select
                   value={activityUserFilter}
                   onChange={(e) => setActivityUserFilter(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
+                  className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
                 >
                   <option>All Users</option>
+
                   {activityUsers.map((user) => (
                     <option key={user} value={user}>
                       {user}
@@ -1367,9 +1507,10 @@ export default function Settings() {
                 <select
                   value={activityModuleFilter}
                   onChange={(e) => setActivityModuleFilter(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
+                  className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
                 >
                   <option>All Modules</option>
+
                   {activityModules.map((module) => (
                     <option key={module} value={module}>
                       {module}
@@ -1380,9 +1521,10 @@ export default function Settings() {
                 <select
                   value={activityActionFilter}
                   onChange={(e) => setActivityActionFilter(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
+                  className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
                 >
                   <option>All Actions</option>
+
                   {activityActions.map((action) => (
                     <option key={action} value={action}>
                       {action}
@@ -1391,14 +1533,20 @@ export default function Settings() {
                 </select>
               </div>
 
-              <div className="mt-5 flex items-center justify-between gap-3">
-                <div>
+              {/* ACTIVITY HEADER */}
+
+              <div className="mt-5 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
                   <h3 className="font-semibold text-slate-900">
                     CRM Activity Log
                   </h3>
+
                   <p className="mt-1 text-xs text-slate-500">
-                    {filteredActivityLogs.length} activity
-                    {filteredActivityLogs.length === 1 ? "" : "ies"} found.
+                    {filteredActivityLogs.length}{" "}
+                    {filteredActivityLogs.length === 1
+                      ? "activity"
+                      : "activities"}{" "}
+                    found.
                   </p>
                 </div>
 
@@ -1414,46 +1562,54 @@ export default function Settings() {
                       setActivityModuleFilter("All Modules");
                       setActivityActionFilter("All Actions");
                     }}
-                    className="text-xs font-semibold text-green-700 hover:text-green-800"
+                    className="w-fit text-xs font-semibold text-green-700 hover:text-green-800"
                   >
                     Clear Filters
                   </button>
                 )}
               </div>
 
+              {/* TABLE */}
+
               <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200">
                 <table className="min-w-[950px] w-full text-sm">
                   <thead className="bg-[#F4F7FA]">
                     <tr>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                      <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
                         Date & Time
                       </th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+
+                      <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
                         User
                       </th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+
+                      <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
                         Activity
                       </th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+
+                      <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
                         Module
                       </th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+
+                      <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
                         Record
                       </th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {filteredActivityLogs.length === 0 ? (
+                    {paginatedActivityLogs.length === 0 ? (
                       <tr>
                         <td
                           colSpan={5}
                           className="px-4 py-12 text-center text-slate-500"
                         >
                           <div className="text-2xl">🕘</div>
+
                           <div className="mt-2 font-medium text-slate-700">
                             No activity found
                           </div>
+
                           <div className="mt-1 text-xs text-slate-400">
                             Activity will appear here when users perform CRM
                             actions.
@@ -1461,7 +1617,7 @@ export default function Settings() {
                         </td>
                       </tr>
                     ) : (
-                      filteredActivityLogs.map((log) => {
+                      paginatedActivityLogs.map((log) => {
                         const user =
                           log.user_name || log.user_email || "Unknown User";
 
@@ -1481,6 +1637,7 @@ export default function Settings() {
                                   },
                                 )}
                               </div>
+
                               <div className="mt-0.5 text-xs text-slate-400">
                                 {new Date(log.created_at).toLocaleTimeString(
                                   "en-IN",
@@ -1492,27 +1649,38 @@ export default function Settings() {
                               </div>
                             </td>
 
-                            <td className="px-4 py-3">
-                              <div className="font-semibold text-slate-900">
+                            <td className="max-w-[240px] px-4 py-3">
+                              <div
+                                className="truncate font-semibold text-slate-900"
+                                title={user}
+                              >
                                 {user}
                               </div>
+
                               {log.user_email && (
-                                <div className="mt-0.5 text-xs text-slate-400">
+                                <div
+                                  className="mt-0.5 max-w-[220px] truncate text-xs text-slate-400"
+                                  title={log.user_email}
+                                >
                                   {log.user_email}
                                 </div>
                               )}
                             </td>
 
                             <td className="max-w-[360px] px-4 py-3">
-                              <div className="font-medium text-slate-800">
+                              <div
+                                className="truncate font-medium text-slate-800"
+                                title={log.description || log.action}
+                              >
                                 {log.description || log.action}
                               </div>
+
                               <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 {log.action}
                               </div>
                             </td>
 
-                            <td className="px-4 py-3">
+                            <td className="whitespace-nowrap px-4 py-3">
                               <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
                                 {log.module}
                               </span>
@@ -1522,8 +1690,12 @@ export default function Settings() {
                               <div className="font-semibold text-slate-700">
                                 {log.record_id || "-"}
                               </div>
+
                               {log.record_name && (
-                                <div className="mt-0.5 max-w-[220px] truncate text-xs text-slate-400">
+                                <div
+                                  className="mt-0.5 max-w-[220px] truncate text-xs text-slate-400"
+                                  title={log.record_name}
+                                >
                                   {log.record_name}
                                 </div>
                               )}
@@ -1535,12 +1707,97 @@ export default function Settings() {
                   </tbody>
                 </table>
               </div>
+
+              {/* ACTIVITY PAGINATION */}
+
+              {filteredActivityLogs.length > 0 && (
+                <div className="border-t border-slate-100">
+                  <div className="flex min-w-0 flex-col gap-3 px-1 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-slate-500">
+                      Showing{" "}
+                      <span className="font-semibold text-slate-700">
+                        {(activityCurrentPage - 1) * PAGE_SIZE + 1}-
+                        {Math.min(
+                          activityCurrentPage * PAGE_SIZE,
+                          filteredActivityLogs.length,
+                        )}
+                      </span>{" "}
+                      of{" "}
+                      <span className="font-semibold text-slate-700">
+                        {filteredActivityLogs.length}
+                      </span>{" "}
+                      activities
+                    </p>
+
+                    {activityTotalPages > 1 && (
+                      <div className="flex max-w-full flex-wrap items-center justify-start gap-1 sm:justify-end">
+                        <button
+                          type="button"
+                          disabled={activityCurrentPage === 1}
+                          onClick={() =>
+                            setActivityCurrentPage((page) =>
+                              Math.max(1, page - 1),
+                            )
+                          }
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Previous
+                        </button>
+
+                        {activityPageNumbers.map((page, index) => {
+                          const previousPage = activityPageNumbers[index - 1];
+
+                          const showEllipsis =
+                            previousPage !== undefined &&
+                            page - previousPage > 1;
+
+                          return (
+                            <React.Fragment key={page}>
+                              {showEllipsis && (
+                                <span className="px-1.5 text-xs text-slate-500">
+                                  ...
+                                </span>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => setActivityCurrentPage(page)}
+                                className={`min-w-[32px] rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                                  activityCurrentPage === page
+                                    ? "bg-blue-600 text-white"
+                                    : "border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                                }`}
+                              >
+                                {page}
+                              </button>
+                            </React.Fragment>
+                          );
+                        })}
+
+                        <button
+                          type="button"
+                          disabled={activityCurrentPage === activityTotalPages}
+                          onClick={() =>
+                            setActivityCurrentPage((page) =>
+                              Math.min(activityTotalPages, page + 1),
+                            )
+                          }
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </section>
           )}
 
           {/* DATA */}
+
           {activeSection === "data" && (
-            <section className="p-5 md:p-6">
+            <section className="p-4 sm:p-5 md:p-6">
               <SectionHeader
                 title="Data & Backup"
                 description="Tools for protecting and exporting CRM data."
@@ -1548,17 +1805,17 @@ export default function Settings() {
               />
 
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <div className="flex items-start gap-3">
+                <div className="flex min-w-0 items-start gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
                     ⚠
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <h3 className="font-semibold text-amber-900">
                       Data safety
                     </h3>
 
-                    <p className="mt-1 text-sm leading-5 text-amber-700">
+                    <p className="mt-1 break-words text-sm leading-5 text-amber-700">
                       Your CRM currently stores data in browser local storage.
                       Full export and restore functionality should be
                       implemented before production use.
@@ -1586,7 +1843,7 @@ export default function Settings() {
                         "Full CRM export will be added in the next step.",
                       )
                     }
-                    className="mt-4 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+                    className="mt-4 w-full rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
                   >
                     Export Data
                   </button>
@@ -1610,7 +1867,7 @@ export default function Settings() {
                         "Restore functionality will be added in the next step.",
                       )
                     }
-                    className="mt-4 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    className="mt-4 w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:w-auto"
                   >
                     Restore Backup
                   </button>
@@ -1645,16 +1902,18 @@ function SectionHeader({
   }[accent];
 
   return (
-    <div className="mb-5">
-      <div className="flex items-start gap-3">
+    <div className="mb-5 min-w-0">
+      <div className="flex min-w-0 items-start gap-3">
         <span className={`mt-1 h-8 w-1 shrink-0 rounded-full ${accentClass}`} />
 
-        <div>
+        <div className="min-w-0">
           <h2 className="text-xl font-bold tracking-tight text-slate-900">
             {title}
           </h2>
 
-          <p className="mt-1 text-sm text-slate-500">{description}</p>
+          <p className="mt-1 break-words text-sm text-slate-500">
+            {description}
+          </p>
         </div>
       </div>
     </div>
@@ -1673,7 +1932,7 @@ function InputField({
   type?: string;
 }) {
   return (
-    <div>
+    <div className="min-w-0">
       <label className="mb-1.5 block text-sm font-medium text-slate-700">
         {label}
       </label>
@@ -1682,7 +1941,7 @@ function InputField({
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-2 focus:ring-green-100"
+        className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-2 focus:ring-green-100"
       />
     </div>
   );
@@ -1700,7 +1959,7 @@ function SelectField({
   onChange: (value: string) => void;
 }) {
   return (
-    <div>
+    <div className="min-w-0">
       <label className="mb-1.5 block text-sm font-medium text-slate-700">
         {label}
       </label>
@@ -1708,7 +1967,7 @@ function SelectField({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
+        className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
       >
         {options.map((option) => (
           <option key={option} value={option}>
@@ -1732,7 +1991,7 @@ function TextAreaField({
   onChange: (value: string) => void;
 }) {
   return (
-    <div>
+    <div className="min-w-0">
       <label className="mb-1.5 block text-sm font-medium text-slate-700">
         {label}
       </label>
@@ -1741,7 +2000,7 @@ function TextAreaField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         rows={rows}
-        className="w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-2 focus:ring-green-100"
+        className="w-full min-w-0 resize-y rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-2 focus:ring-green-100"
       />
     </div>
   );
@@ -1783,7 +2042,7 @@ function ToggleRow({
 
   return (
     <div
-      className={`flex items-center justify-between gap-4 rounded-xl border p-4 ${accentClasses.border} ${accentClasses.bg}`}
+      className={`flex min-w-0 items-center justify-between gap-4 rounded-xl border p-4 ${accentClasses.border} ${accentClasses.bg}`}
     >
       <div className="flex min-w-0 items-start gap-3">
         <div
@@ -1792,10 +2051,12 @@ function ToggleRow({
           ✓
         </div>
 
-        <div>
+        <div className="min-w-0">
           <div className="font-semibold text-slate-900">{title}</div>
 
-          <div className="mt-1 text-sm text-slate-500">{description}</div>
+          <div className="mt-1 break-words text-sm text-slate-500">
+            {description}
+          </div>
         </div>
       </div>
 
@@ -1823,7 +2084,7 @@ function SaveButton({ onClick }: { onClick: () => void }) {
       <button
         type="button"
         onClick={onClick}
-        className="rounded-lg bg-green-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-green-700"
+        className="w-full rounded-lg bg-green-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-green-700 sm:w-auto"
       >
         Save Changes
       </button>

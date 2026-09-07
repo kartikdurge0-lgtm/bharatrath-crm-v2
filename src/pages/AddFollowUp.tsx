@@ -39,34 +39,66 @@ export default function AddFollowUp() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const [teamMembers, setTeamMembers] = useState<
-    Awaited<ReturnType<typeof getActiveSalesPersons>>
-  >([]);
-
-  // Supabase data
-  const [leads, setLeads] = useState<Awaited<ReturnType<typeof getLeads>>>([]);
-
-  // Existing local stores
-  const clients = getClients();
-  const quotations = getQuotations();
-  const renewals = getRenewals();
+  /* =======================================================
+     URL PARAMETERS
+  ======================================================= */
 
   const initialRelatedType =
     (searchParams.get("relatedType") as FollowUpRelatedType) || "Lead";
 
   const initialRelatedId = searchParams.get("relatedId") || "";
 
+  /* =======================================================
+     TEAM MEMBERS
+  ======================================================= */
+
+  const [teamMembers, setTeamMembers] = useState<
+    Awaited<ReturnType<typeof getActiveSalesPersons>>
+  >([]);
+
+  /* =======================================================
+     LEADS
+  ======================================================= */
+
+  const [leads, setLeads] = useState<Awaited<ReturnType<typeof getLeads>>>([]);
+
+  /* =======================================================
+     LOCAL RECORDS
+     
+     IMPORTANT:
+     These are loaded once.
+     We do NOT call getClients(), getQuotations(),
+     getRenewals() directly during every render.
+     
+     This prevents relatedRecords from changing on
+     every render and causing useEffect loops.
+  ======================================================= */
+
+  const [clients] = useState(() => getClients());
+
+  const [quotations] = useState(() => getQuotations());
+
+  const [renewals] = useState(() => getRenewals());
+
+  /* =======================================================
+     FORM
+  ======================================================= */
+
   const [form, setForm] = useState({
     relatedType: initialRelatedType,
+
     relatedId: initialRelatedId,
 
     contactPerson: "",
+
     phone: "",
 
     purpose: "",
+
     followUpType: "Call",
 
     followUpDate: "",
+
     followUpTime: "",
 
     priority: "Medium" as FollowUpPriority,
@@ -76,30 +108,38 @@ export default function AddFollowUp() {
     reminder: "No Reminder",
 
     nextFollowUpDate: "",
+
     nextFollowUpTime: "",
 
     nextAction: "",
 
     notes: "",
+
     clientResponse: "",
+
     internalNotes: "",
   });
 
   const [error, setError] = useState("");
 
-  /*
-   * Load leads from Supabase.
-   */
+  const [saving, setSaving] = useState(false);
+
+  /* =======================================================
+     LOAD LEADS
+  ======================================================= */
+
   useEffect(() => {
     let mounted = true;
 
-    const loadLeads = async () => {
+    async function loadLeads() {
       try {
         const data = await getLeads();
 
-        if (mounted) {
-          setLeads(data);
+        if (!mounted) {
+          return;
         }
+
+        setLeads(data);
       } catch (error) {
         console.error("Failed to load leads:", error);
 
@@ -107,33 +147,35 @@ export default function AddFollowUp() {
           setError("Failed to load leads.");
         }
       }
-    };
+    }
 
-    loadLeads();
+    void loadLeads();
 
     return () => {
       mounted = false;
     };
   }, []);
 
-  /*
-   * Load active internal Bharatrath team members.
-   * External Sales Persons are excluded.
-   */
+  /* =======================================================
+     LOAD INTERNAL TEAM MEMBERS
+  ======================================================= */
+
   useEffect(() => {
     let mounted = true;
 
-    const loadTeamMembers = async () => {
+    async function loadTeamMembers() {
       try {
         const persons = await getActiveSalesPersons();
 
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
 
-        setTeamMembers(
-          persons.filter(
-            (person) => person.type === "Staff" || person.type === "Part-time",
-          ),
+        const internalMembers = persons.filter(
+          (person) => person.type === "Staff" || person.type === "Part-time",
         );
+
+        setTeamMembers(internalMembers);
       } catch (error) {
         console.error("Failed to load team members:", error);
 
@@ -141,38 +183,62 @@ export default function AddFollowUp() {
           setError("Failed to load team members.");
         }
       }
-    };
+    }
 
-    loadTeamMembers();
+    void loadTeamMembers();
 
     return () => {
       mounted = false;
     };
   }, []);
 
-  /*
-   * Convert different CRM records into one
-   * common format for the dropdown.
-   */
+  /* =======================================================
+     RELATED RECORDS
+     
+     IMPORTANT:
+     Dependencies are now stable.
+     
+     We do NOT depend on freshly-created arrays from
+     getClients()/getQuotations()/getRenewals().
+  ======================================================= */
+
   const relatedRecords = useMemo<RelatedRecord[]>(() => {
+    /* -----------------------------------------------------
+       LEADS
+    ----------------------------------------------------- */
+
     if (form.relatedType === "Lead") {
       return leads.map((lead) => ({
         id: lead.id,
+
         name: lead.companyName || lead.contactPerson || lead.phone || lead.id,
-        contactPerson: lead.contactPerson,
-        phone: lead.phone,
+
+        contactPerson: lead.contactPerson || "",
+
+        phone: lead.phone || "",
       }));
     }
+
+    /* -----------------------------------------------------
+       CLIENTS
+    ----------------------------------------------------- */
 
     if (form.relatedType === "Client") {
       return clients.map((client) => ({
         id: client.id,
+
         name:
           client.company || client.contactPerson || client.phone || client.id,
-        contactPerson: client.contactPerson,
-        phone: client.phone,
+
+        contactPerson: client.contactPerson || "",
+
+        phone: client.phone || "",
       }));
     }
+
+    /* -----------------------------------------------------
+       QUOTATIONS
+    ----------------------------------------------------- */
 
     if (form.relatedType === "Quotation") {
       return quotations.map((quotation) => {
@@ -185,15 +251,22 @@ export default function AddFollowUp() {
 
         return {
           id: quotation.id,
+
           name:
             quotationRecord.clientName ||
             quotationRecord.companyName ||
             quotation.id,
+
           contactPerson: quotationRecord.contactPerson || "",
+
           phone: quotationRecord.phone || "",
         };
       });
     }
+
+    /* -----------------------------------------------------
+       RENEWALS
+    ----------------------------------------------------- */
 
     return renewals.map((renewal) => {
       const renewalRecord = renewal as typeof renewal & {
@@ -205,52 +278,111 @@ export default function AddFollowUp() {
 
       return {
         id: renewal.id,
+
         name:
           renewalRecord.clientName || renewalRecord.companyName || renewal.id,
+
         contactPerson: renewalRecord.contactPerson || "",
+
         phone: renewalRecord.phone || "",
       };
     });
   }, [form.relatedType, leads, clients, quotations, renewals]);
 
-  /*
-   * Set default internal team member.
-   * Prefer Vijay if available.
-   */
-  useEffect(() => {
-    if (!form.assignedTo && teamMembers.length > 0) {
-      const vijay = teamMembers.find(
-        (person) => person.name.toLowerCase() === "vijay",
-      );
+  /* =======================================================
+     DEFAULT ASSIGNED TEAM MEMBER
+     
+     Prefer Vijay.
+  ======================================================= */
 
-      setForm((previous) => ({
-        ...previous,
-        assignedTo: vijay?.id ?? teamMembers[0].id,
-      }));
+  useEffect(() => {
+    if (form.assignedTo || teamMembers.length === 0) {
+      return;
     }
+
+    const vijay = teamMembers.find(
+      (person) => person.name.trim().toLowerCase() === "vijay",
+    );
+
+    const defaultMember = vijay?.id || teamMembers[0].id;
+
+    setForm((previous) => {
+      if (previous.assignedTo) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        assignedTo: defaultMember,
+      };
+    });
   }, [form.assignedTo, teamMembers]);
 
-  /*
-   * When coming from Lead Details:
-   *
-   * /add-follow-up?relatedType=Lead&relatedId=LEAD-001
-   *
-   * automatically fill contact information.
-   */
+  /* =======================================================
+     PREFILL RELATED RECORD
+     
+     Used when coming from:
+     
+     /add-follow-up?relatedType=Lead&relatedId=LEAD-001
+     
+     IMPORTANT:
+     State is only updated when the values actually
+     need to change.
+     
+     This prevents:
+     
+     render
+       ↓
+     useEffect
+       ↓
+     setForm
+       ↓
+     render
+       ↓
+     useEffect
+       ↓
+     ...
+  ======================================================= */
+
   useEffect(() => {
-    if (!initialRelatedId) return;
+    if (!initialRelatedId) {
+      return;
+    }
 
     const record = relatedRecords.find((item) => item.id === initialRelatedId);
 
-    if (!record) return;
+    if (!record) {
+      return;
+    }
 
-    setForm((previous) => ({
-      ...previous,
-      relatedId: initialRelatedId,
-      contactPerson: record.contactPerson || "",
-      phone: record.phone || "",
-    }));
+    setForm((previous) => {
+      const nextContactPerson = record.contactPerson || "";
+
+      const nextPhone = record.phone || "";
+
+      if (
+        previous.relatedId === initialRelatedId &&
+        previous.contactPerson === nextContactPerson &&
+        previous.phone === nextPhone
+      ) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+
+        relatedId: initialRelatedId,
+
+        contactPerson: nextContactPerson,
+
+        phone: nextPhone,
+      };
+    });
   }, [initialRelatedId, relatedRecords]);
+
+  /* =======================================================
+     UPDATE FIELD
+  ======================================================= */
 
   function updateField(field: string, value: string) {
     setForm((previous) => ({
@@ -259,48 +391,80 @@ export default function AddFollowUp() {
     }));
   }
 
+  /* =======================================================
+     RELATED TYPE CHANGE
+  ======================================================= */
+
   function handleRelatedTypeChange(type: FollowUpRelatedType) {
     setForm((previous) => ({
       ...previous,
+
       relatedType: type,
+
       relatedId: "",
+
       contactPerson: "",
+
       phone: "",
     }));
   }
+
+  /* =======================================================
+     RELATED RECORD CHANGE
+  ======================================================= */
 
   function handleRelatedRecordChange(recordId: string) {
     const record = relatedRecords.find((item) => item.id === recordId);
 
     setForm((previous) => ({
       ...previous,
+
       relatedId: recordId,
+
       contactPerson: record?.contactPerson || "",
+
       phone: record?.phone || "",
     }));
   }
 
+  /* =======================================================
+     SUBMIT
+  ======================================================= */
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (saving) {
+      return;
+    }
+
     setError("");
+
+    /* -----------------------------------------------------
+       VALIDATION
+    ----------------------------------------------------- */
 
     if (!form.relatedId) {
       setError(`Please select a ${form.relatedType}.`);
+
       return;
     }
 
     if (!form.assignedTo) {
       setError("Please select a team member.");
+
       return;
     }
 
     if (!form.followUpDate) {
       setError("Please select a follow-up date.");
+
       return;
     }
 
     if (!form.followUpTime) {
       setError("Please select a follow-up time.");
+
       return;
     }
 
@@ -310,16 +474,22 @@ export default function AddFollowUp() {
 
     if (!selectedRecord) {
       setError("Selected record could not be found.");
+
       return;
     }
 
-    try {
-      const now = new Date().toISOString();
+    /* -----------------------------------------------------
+       SAVE
+    ----------------------------------------------------- */
 
-      // Generate Supabase-compatible follow-up ID
+    setSaving(true);
+
+    try {
       const followUpId = await generateFollowUpId();
 
-      await addFollowUp({
+      const now = new Date().toISOString();
+
+      const createdFollowUp = await addFollowUp({
         id: followUpId,
 
         relatedType: form.relatedType,
@@ -328,7 +498,9 @@ export default function AddFollowUp() {
 
         relatedName: selectedRecord.name,
 
-        // Compatibility fields
+        /*
+         * Compatibility fields.
+         */
         clientId: form.relatedType === "Client" ? form.relatedId : "",
 
         clientName: form.relatedType === "Client" ? selectedRecord.name : "",
@@ -368,12 +540,24 @@ export default function AddFollowUp() {
         createdAt: now,
       });
 
-      // If created from Lead Details, return to that Lead
-      if (form.relatedType === "Lead" && form.relatedId) {
-        navigate(`/leads/${form.relatedId}`);
-      } else {
-        navigate("/follow-ups");
+      /*
+       * addFollowUp() returns the created record
+       * only when Supabase insert succeeds.
+       */
+      if (!createdFollowUp) {
+        throw new Error("Follow-up could not be saved.");
       }
+
+      /*
+       * Return to the Lead after successful save.
+       */
+      if (form.relatedType === "Lead" && form.relatedId) {
+        navigate(`/leads/${encodeURIComponent(form.relatedId)}`);
+
+        return;
+      }
+
+      navigate("/follow-ups");
     } catch (error) {
       console.error("Failed to save follow-up:", error);
 
@@ -382,11 +566,18 @@ export default function AddFollowUp() {
           ? error.message
           : "Failed to save follow-up. Please try again.",
       );
+    } finally {
+      setSaving(false);
     }
   }
 
+  /* =======================================================
+     RENDER
+  ======================================================= */
+
   return (
     <div className="mx-auto max-w-5xl">
+      {/* BACK */}
       <button
         type="button"
         onClick={() => navigate("/follow-ups")}
@@ -395,6 +586,7 @@ export default function AddFollowUp() {
         ← Back to Follow-ups
       </button>
 
+      {/* HEADER */}
       <div className="mb-7">
         <h1 className="text-3xl font-bold text-gray-900">Add Follow-up</h1>
 
@@ -403,6 +595,7 @@ export default function AddFollowUp() {
         </p>
       </div>
 
+      {/* ERROR */}
       {error && (
         <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
@@ -410,7 +603,10 @@ export default function AddFollowUp() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Related Record */}
+        {/* =================================================
+            RELATED RECORD
+        ================================================= */}
+
         <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-200 px-6 py-5">
             <h2 className="text-lg font-semibold text-gray-900">
@@ -423,6 +619,8 @@ export default function AddFollowUp() {
           </div>
 
           <div className="grid grid-cols-1 gap-5 p-6 md:grid-cols-2">
+            {/* RELATED TYPE */}
+
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Related To *
@@ -430,17 +628,24 @@ export default function AddFollowUp() {
 
               <select
                 value={form.relatedType}
-                onChange={(e) =>
-                  handleRelatedTypeChange(e.target.value as FollowUpRelatedType)
+                onChange={(event) =>
+                  handleRelatedTypeChange(
+                    event.target.value as FollowUpRelatedType,
+                  )
                 }
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="Lead">Lead</option>
+
                 <option value="Client">Client</option>
+
                 <option value="Quotation">Quotation</option>
+
                 <option value="Renewal">Renewal</option>
               </select>
             </div>
+
+            {/* RELATED RECORD */}
 
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -449,7 +654,9 @@ export default function AddFollowUp() {
 
               <select
                 value={form.relatedId}
-                onChange={(e) => handleRelatedRecordChange(e.target.value)}
+                onChange={(event) =>
+                  handleRelatedRecordChange(event.target.value)
+                }
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">Select {form.relatedType}</option>
@@ -464,7 +671,10 @@ export default function AddFollowUp() {
           </div>
         </section>
 
-        {/* Contact + Assignment */}
+        {/* =================================================
+            CONTACT & ASSIGNMENT
+        ================================================= */}
+
         <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-200 px-6 py-5">
             <h2 className="text-lg font-semibold text-gray-900">
@@ -473,6 +683,8 @@ export default function AddFollowUp() {
           </div>
 
           <div className="grid grid-cols-1 gap-5 p-6 md:grid-cols-3">
+            {/* CONTACT */}
+
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Contact Person
@@ -481,11 +693,15 @@ export default function AddFollowUp() {
               <input
                 type="text"
                 value={form.contactPerson}
-                onChange={(e) => updateField("contactPerson", e.target.value)}
+                onChange={(event) =>
+                  updateField("contactPerson", event.target.value)
+                }
                 placeholder="Contact person"
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
+
+            {/* MOBILE */}
 
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -495,11 +711,13 @@ export default function AddFollowUp() {
               <input
                 type="tel"
                 value={form.phone}
-                onChange={(e) => updateField("phone", e.target.value)}
+                onChange={(event) => updateField("phone", event.target.value)}
                 placeholder="Mobile number"
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
+
+            {/* ASSIGNED TO */}
 
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -508,7 +726,9 @@ export default function AddFollowUp() {
 
               <select
                 value={form.assignedTo}
-                onChange={(e) => updateField("assignedTo", e.target.value)}
+                onChange={(event) =>
+                  updateField("assignedTo", event.target.value)
+                }
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">Select Team Member</option>
@@ -523,13 +743,18 @@ export default function AddFollowUp() {
           </div>
         </section>
 
-        {/* Follow-up */}
+        {/* =================================================
+            FOLLOW-UP
+        ================================================= */}
+
         <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-200 px-6 py-5">
             <h2 className="text-lg font-semibold text-gray-900">Follow-up</h2>
           </div>
 
           <div className="grid grid-cols-1 gap-5 p-6 md:grid-cols-3">
+            {/* TYPE */}
+
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Follow-up Type
@@ -537,7 +762,9 @@ export default function AddFollowUp() {
 
               <select
                 value={form.followUpType}
-                onChange={(e) => updateField("followUpType", e.target.value)}
+                onChange={(event) =>
+                  updateField("followUpType", event.target.value)
+                }
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 {followUpTypes.map((type) => (
@@ -548,6 +775,8 @@ export default function AddFollowUp() {
               </select>
             </div>
 
+            {/* DATE */}
+
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Date *
@@ -556,10 +785,14 @@ export default function AddFollowUp() {
               <input
                 type="date"
                 value={form.followUpDate}
-                onChange={(e) => updateField("followUpDate", e.target.value)}
+                onChange={(event) =>
+                  updateField("followUpDate", event.target.value)
+                }
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
+
+            {/* TIME */}
 
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -569,10 +802,14 @@ export default function AddFollowUp() {
               <input
                 type="time"
                 value={form.followUpTime}
-                onChange={(e) => updateField("followUpTime", e.target.value)}
+                onChange={(event) =>
+                  updateField("followUpTime", event.target.value)
+                }
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
+
+            {/* PRIORITY */}
 
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -581,7 +818,9 @@ export default function AddFollowUp() {
 
               <select
                 value={form.priority}
-                onChange={(e) => updateField("priority", e.target.value)}
+                onChange={(event) =>
+                  updateField("priority", event.target.value)
+                }
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 {priorities.map((priority) => (
@@ -592,6 +831,8 @@ export default function AddFollowUp() {
               </select>
             </div>
 
+            {/* REMINDER */}
+
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Reminder
@@ -599,7 +840,9 @@ export default function AddFollowUp() {
 
               <select
                 value={form.reminder}
-                onChange={(e) => updateField("reminder", e.target.value)}
+                onChange={(event) =>
+                  updateField("reminder", event.target.value)
+                }
                 className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 {reminders.map((reminder) => (
@@ -610,6 +853,8 @@ export default function AddFollowUp() {
               </select>
             </div>
 
+            {/* PURPOSE */}
+
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Purpose
@@ -618,7 +863,7 @@ export default function AddFollowUp() {
               <input
                 type="text"
                 value={form.purpose}
-                onChange={(e) => updateField("purpose", e.target.value)}
+                onChange={(event) => updateField("purpose", event.target.value)}
                 placeholder="Why are you following up?"
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
@@ -626,13 +871,18 @@ export default function AddFollowUp() {
           </div>
         </section>
 
-        {/* Next Action */}
+        {/* =================================================
+            NEXT ACTION
+        ================================================= */}
+
         <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-200 px-6 py-5">
             <h2 className="text-lg font-semibold text-gray-900">Next Action</h2>
           </div>
 
           <div className="grid grid-cols-1 gap-5 p-6 md:grid-cols-3">
+            {/* NEXT DATE */}
+
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Next Follow-up Date
@@ -641,12 +891,14 @@ export default function AddFollowUp() {
               <input
                 type="date"
                 value={form.nextFollowUpDate}
-                onChange={(e) =>
-                  updateField("nextFollowUpDate", e.target.value)
+                onChange={(event) =>
+                  updateField("nextFollowUpDate", event.target.value)
                 }
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
+
+            {/* NEXT TIME */}
 
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -656,12 +908,14 @@ export default function AddFollowUp() {
               <input
                 type="time"
                 value={form.nextFollowUpTime}
-                onChange={(e) =>
-                  updateField("nextFollowUpTime", e.target.value)
+                onChange={(event) =>
+                  updateField("nextFollowUpTime", event.target.value)
                 }
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
+
+            {/* NEXT ACTION */}
 
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -671,7 +925,9 @@ export default function AddFollowUp() {
               <input
                 type="text"
                 value={form.nextAction}
-                onChange={(e) => updateField("nextAction", e.target.value)}
+                onChange={(event) =>
+                  updateField("nextAction", event.target.value)
+                }
                 placeholder="Call / Meeting / Send quotation"
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
@@ -679,13 +935,18 @@ export default function AddFollowUp() {
           </div>
         </section>
 
-        {/* Notes */}
+        {/* =================================================
+            NOTES
+        ================================================= */}
+
         <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-200 px-6 py-5">
             <h2 className="text-lg font-semibold text-gray-900">Notes</h2>
           </div>
 
           <div className="grid grid-cols-1 gap-5 p-6 md:grid-cols-2">
+            {/* NOTES */}
+
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Notes
@@ -693,12 +954,14 @@ export default function AddFollowUp() {
 
               <textarea
                 value={form.notes}
-                onChange={(e) => updateField("notes", e.target.value)}
+                onChange={(event) => updateField("notes", event.target.value)}
                 rows={3}
                 placeholder="Follow-up notes"
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
+
+            {/* INTERNAL NOTES */}
 
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -707,7 +970,9 @@ export default function AddFollowUp() {
 
               <textarea
                 value={form.internalNotes}
-                onChange={(e) => updateField("internalNotes", e.target.value)}
+                onChange={(event) =>
+                  updateField("internalNotes", event.target.value)
+                }
                 rows={3}
                 placeholder="Internal team notes"
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
@@ -716,21 +981,26 @@ export default function AddFollowUp() {
           </div>
         </section>
 
-        {/* Actions */}
+        {/* =================================================
+            ACTIONS
+        ================================================= */}
+
         <div className="flex justify-end gap-3 pb-8">
           <button
             type="button"
+            disabled={saving}
             onClick={() => navigate("/follow-ups")}
-            className="rounded-lg border border-gray-300 px-5 py-3 text-gray-700 hover:bg-gray-50"
+            className="rounded-lg border border-gray-300 px-5 py-3 text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Cancel
           </button>
 
           <button
             type="submit"
-            className="rounded-lg bg-blue-600 px-6 py-3 font-medium text-white hover:bg-blue-700"
+            disabled={saving}
+            className="rounded-lg bg-blue-600 px-6 py-3 font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Save Follow-up
+            {saving ? "Saving..." : "Save Follow-up"}
           </button>
         </div>
       </form>

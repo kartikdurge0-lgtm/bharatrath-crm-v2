@@ -2,18 +2,30 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { getQuotation, updateQuotation } from "../data/quotationStore";
+import {
+  getQuotation,
+  updateQuotation,
+  type Quotation,
+  type QuotationItem,
+} from "../data/quotationStore";
+
 import { getServices } from "../data/serviceStore";
 import { getClients } from "../data/clientStore";
+import SearchableClientSelect from "../components/SearchableClientSelect";
 
 type AnyRecord = Record<string, any>;
+
+/* =====================================================
+   EMPTY ITEM
+===================================================== */
 
 const emptyItem = (): AnyRecord => ({
   serviceId: "",
   serviceName: "",
+  description: "",
   sac: "",
   basicCost: 0,
-  discount: 0,
+  discountedCost: 0,
   finalCost: 0,
   frequency: "",
 });
@@ -28,6 +40,11 @@ function text(value: unknown): string {
 
 function normalize(value: unknown): string {
   return text(value).trim().toLowerCase();
+}
+
+function number(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function getServiceId(service: AnyRecord): string {
@@ -45,7 +62,7 @@ function getServiceName(service: AnyRecord): string {
 }
 
 function getServicePrice(service: AnyRecord): number {
-  return Number(
+  return number(
     service.default_price ??
       service.defaultPrice ??
       service.price ??
@@ -95,6 +112,46 @@ function getClientName(client: AnyRecord): string {
 }
 
 /* =====================================================
+   NORMALIZE ITEM
+===================================================== */
+
+function normalizeQuotationItem(item: AnyRecord): AnyRecord {
+  const basicCost = number(item.basicCost);
+
+  const discountedCost = Math.max(
+    0,
+    Math.min(basicCost, number(item.discountedCost ?? item.discount ?? 0)),
+  );
+
+  const finalCost = Math.max(
+    0,
+    number(item.finalCost ?? basicCost - discountedCost),
+  );
+
+  return {
+    ...item,
+
+    serviceId: text(item.serviceId ?? item.service_id ?? ""),
+
+    serviceName: text(item.serviceName ?? item.service_name ?? ""),
+
+    description: text(
+      item.description ?? item.serviceName ?? item.service_name ?? "",
+    ),
+
+    sac: text(item.sac ?? item.sacCode ?? ""),
+
+    basicCost,
+
+    discountedCost,
+
+    finalCost,
+
+    frequency: text(item.frequency ?? ""),
+  };
+}
+
+/* =====================================================
    COMPONENT
 ===================================================== */
 
@@ -102,7 +159,7 @@ export default function EditQuotation() {
   const navigate = useNavigate();
   const { quotationId } = useParams();
 
-  const [quotation, setQuotation] = useState<AnyRecord | null>(null);
+  const [quotation, setQuotation] = useState<Quotation | null>(null);
 
   const [clients, setClients] = useState<AnyRecord[]>([]);
 
@@ -140,10 +197,11 @@ export default function EditQuotation() {
 
   useEffect(() => {
     if (!quotationId) {
+      setQuotation(null);
       return;
     }
 
-    const data = getQuotation(quotationId) as AnyRecord | null;
+    const data = getQuotation(quotationId);
 
     if (!data) {
       setQuotation(null);
@@ -152,8 +210,13 @@ export default function EditQuotation() {
 
     setQuotation(data);
 
-    setClientId(text(data.clientId ?? data.client_id ?? ""));
+    setClientId(text(data.clientId ?? ""));
 
+    /*
+      IMPORTANT:
+      Quotation number is display-only during edit.
+      It must NEVER be regenerated.
+    */
     setQuotationNumber(text(data.quotationNumber));
 
     setQuotationDate(text(data.quotationDate));
@@ -162,13 +225,14 @@ export default function EditQuotation() {
 
     setStatus(text(data.status) || "Draft");
 
-    setItems(
+    const existingItems =
       Array.isArray(data.items) && data.items.length > 0
-        ? data.items
-        : [emptyItem()],
-    );
+        ? data.items.map(normalizeQuotationItem)
+        : [emptyItem()];
 
-    setGst(Number(data.gst ?? data.gstRate ?? data.tax ?? 18));
+    setItems(existingItems);
+
+    setGst(number(data.tax ?? 18));
 
     setScopeOfWork(text(data.scopeOfWork));
 
@@ -196,10 +260,7 @@ export default function EditQuotation() {
   }, []);
 
   /* =====================================================
-     RESTORE EXISTING CLIENT
-
-     Old quotations may contain an old client ID.
-     First match by ID, then by client name.
+     RESTORE CLIENT
   ===================================================== */
 
   useEffect(() => {
@@ -207,11 +268,9 @@ export default function EditQuotation() {
       return;
     }
 
-    const savedClientId = text(quotation.clientId ?? quotation.client_id ?? "");
+    const savedClientId = text(quotation.clientId);
 
-    const savedClientName = text(
-      quotation.clientName ?? quotation.client_name ?? "",
-    );
+    const savedClientName = text(quotation.clientName);
 
     let matchedClient = clients.find(
       (client) => getClientId(client) === savedClientId,
@@ -230,14 +289,7 @@ export default function EditQuotation() {
   }, [clients, quotation]);
 
   /* =====================================================
-     RESTORE EXISTING SERVICES
-
-     Match:
-     1. service ID
-     2. service name
-     3. item description
-
-     Existing quotation pricing is preserved.
+     RESTORE SERVICES
   ===================================================== */
 
   useEffect(() => {
@@ -263,7 +315,7 @@ export default function EditQuotation() {
         }
 
         if (!matchedService) {
-          return item;
+          return normalizeQuotationItem(item);
         }
 
         const currentServiceId = getServiceId(matchedService);
@@ -274,12 +326,20 @@ export default function EditQuotation() {
 
         const currentFrequency = getServiceFrequency(matchedService);
 
+        /*
+            Existing quotation pricing is preserved.
+            Only service master metadata is restored.
+          */
+
         return {
-          ...item,
+          ...normalizeQuotationItem(item),
 
           serviceId: currentServiceId,
 
           serviceName: currentServiceName || savedName,
+
+          description:
+            text(item.description) || currentServiceName || savedName,
 
           sac: text(item.sac) || currentSac,
 
@@ -287,22 +347,27 @@ export default function EditQuotation() {
         };
       }),
     );
+
+    // Service master restoration only.
+    // Existing quotation pricing is preserved.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [services]);
 
   /* =====================================================
      SELECTED CLIENT
   ===================================================== */
 
-  const selectedClient = useMemo(() => {
-    return clients.find((client) => getClientId(client) === clientId);
-  }, [clients, clientId]);
+  const selectedClient = useMemo(
+    () => clients.find((client) => getClientId(client) === clientId),
+    [clients, clientId],
+  );
 
   const clientName = selectedClient
     ? getClientName(selectedClient)
-    : text(quotation?.clientName ?? quotation?.client_name ?? "");
+    : text(quotation?.clientName);
 
   /* =====================================================
-     ADD SERVICE ROW
+     ADD SERVICE
   ===================================================== */
 
   function addServiceRow() {
@@ -310,7 +375,7 @@ export default function EditQuotation() {
   }
 
   /* =====================================================
-     DELETE SERVICE ROW
+     DELETE SERVICE
   ===================================================== */
 
   function deleteServiceRow(index: number) {
@@ -352,11 +417,13 @@ export default function EditQuotation() {
 
           serviceName: getServiceName(service),
 
+          description: getServiceName(service),
+
           sac: getServiceSac(service),
 
           basicCost,
 
-          discount: 0,
+          discountedCost: 0,
 
           finalCost: basicCost,
 
@@ -370,7 +437,7 @@ export default function EditQuotation() {
      ITEM UPDATE
   ===================================================== */
 
-  function updateItem(index: number, field: string, value: any) {
+  function updateItem(index: number, field: string, value: unknown) {
     setItems((current) =>
       current.map((item, i) => {
         if (i !== index) {
@@ -382,10 +449,17 @@ export default function EditQuotation() {
           [field]: value,
         };
 
-        if (field === "basicCost" || field === "discount") {
-          const basic = Number(updated.basicCost || 0);
+        if (field === "basicCost" || field === "discountedCost") {
+          const basic = Math.max(0, number(updated.basicCost));
 
-          const discount = Number(updated.discount || 0);
+          const discount = Math.min(
+            basic,
+            Math.max(0, number(updated.discountedCost)),
+          );
+
+          updated.basicCost = basic;
+
+          updated.discountedCost = discount;
 
           updated.finalCost = Math.max(0, basic - discount);
         }
@@ -399,17 +473,18 @@ export default function EditQuotation() {
      TOTALS
   ===================================================== */
 
-  const subtotal = useMemo(() => {
-    return items.reduce((sum, item) => sum + Number(item.finalCost || 0), 0);
-  }, [items]);
+  const subtotal = useMemo(
+    () =>
+      items.reduce((sum, item) => sum + Math.max(0, number(item.finalCost)), 0),
+    [items],
+  );
 
-  const gstAmount = useMemo(() => {
-    return (subtotal * Number(gst || 0)) / 100;
-  }, [subtotal, gst]);
+  const gstAmount = useMemo(
+    () => (subtotal * Math.max(0, number(gst))) / 100,
+    [subtotal, gst],
+  );
 
-  const grandTotal = useMemo(() => {
-    return subtotal + gstAmount;
-  }, [subtotal, gstAmount]);
+  const grandTotal = useMemo(() => subtotal + gstAmount, [subtotal, gstAmount]);
 
   /* =====================================================
      CURRENCY
@@ -436,44 +511,71 @@ export default function EditQuotation() {
       return;
     }
 
+    if (!quotation) {
+      setError("Quotation could not be loaded.");
+      return;
+    }
+
     if (!clientId) {
       setError("Please select a client.");
       return;
     }
 
-    const validItems = items.filter(
-      (item) => item.serviceId || getItemServiceName(item),
-    );
+    if (!quotationDate) {
+      setError("Please select quotation date.");
+      return;
+    }
+
+    if (validUntil && validUntil < quotationDate) {
+      setError("Valid Until date cannot be before quotation date.");
+      return;
+    }
+
+    const validItems = items
+      .filter((item) => item.serviceId || getItemServiceName(item))
+      .map(normalizeQuotationItem);
 
     if (validItems.length === 0) {
       setError("Please add at least one service.");
       return;
     }
 
-    const updated = {
-      ...quotation,
+    const hasInvalidItem = validItems.some(
+      (item) => !item.serviceId && !item.serviceName && !item.description,
+    );
 
+    if (hasInvalidItem) {
+      setError("Please select a valid service for every service row.");
+      return;
+    }
+
+    /*
+      IMPORTANT:
+      Original quotation number is immutable.
+    */
+
+    const immutableQuotationNumber = quotation.quotationNumber;
+
+    const updatedQuotation: Partial<Quotation> = {
       clientId,
 
       clientName,
 
-      quotationNumber,
+      quotationNumber: immutableQuotationNumber,
 
       quotationDate,
 
       validUntil,
 
-      status,
+      status: status as Quotation["status"],
 
-      items: validItems,
+      items: validItems as QuotationItem[],
 
       subtotal,
 
-      gst,
+      tax: Math.max(0, number(gst)),
 
-      gstAmount,
-
-      total: grandTotal,
+      taxAmount: gstAmount,
 
       grandTotal,
 
@@ -486,11 +588,14 @@ export default function EditQuotation() {
       remarks,
 
       termsConditions,
-
-      updatedAt: new Date().toISOString(),
     };
 
-    updateQuotation(quotationId, updated as any);
+    const saved = updateQuotation(quotationId, updatedQuotation);
+
+    if (!saved) {
+      setError("Quotation could not be updated. Please try again.");
+      return;
+    }
 
     navigate(`/quotations/${quotationId}`);
   }
@@ -501,26 +606,28 @@ export default function EditQuotation() {
 
   if (!quotation) {
     return (
-      <div className="space-y-6">
+      <div className="mx-auto w-full max-w-[1200px] min-w-0 space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Edit Quotation</h1>
+          <h1 className="text-xl font-bold text-gray-900 sm:text-2xl">
+            Edit Quotation
+          </h1>
 
           <p className="mt-1 text-sm text-gray-500">Update quotation details</p>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white p-10 text-center shadow-sm">
-          <h2 className="text-xl font-semibold text-gray-900">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm sm:p-10">
+          <h2 className="text-lg font-semibold text-gray-900 sm:text-xl">
             Quotation Not Found
           </h2>
 
-          <p className="mt-2 text-sm text-gray-500">
-            The quotation could not be found.
+          <p className="mt-2 break-safe text-sm text-gray-500">
+            The quotation could not be found or may have been archived.
           </p>
 
           <button
             type="button"
             onClick={() => navigate("/quotations")}
-            className="mt-6 rounded-lg bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+            className="mt-6 w-full rounded-lg bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
           >
             ← Back to Quotations
           </button>
@@ -534,12 +641,19 @@ export default function EditQuotation() {
   ===================================================== */
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {/* PAGE HEADER */}
+    <form
+      onSubmit={handleSubmit}
+      className="mx-auto w-full max-w-[1200px] min-w-0 space-y-4 pb-8 sm:space-y-6"
+    >
+      {/* =================================================
+          HEADER
+      ================================================= */}
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Edit Quotation</h1>
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-gray-900 sm:text-2xl">
+            Edit Quotation
+          </h1>
 
           <p className="mt-1 text-sm text-gray-500">Update quotation details</p>
         </div>
@@ -547,16 +661,18 @@ export default function EditQuotation() {
         <button
           type="button"
           onClick={() => navigate(`/quotations/${quotation.id}`)}
-          className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="w-full shrink-0 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 sm:w-auto"
         >
           ← Back to Quotation
         </button>
       </div>
 
-      {/* ERROR */}
+      {/* =================================================
+          ERROR
+      ================================================= */}
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+        <div className="break-safe rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-sm font-medium text-red-700 sm:px-4">
           {error}
         </div>
       )}
@@ -565,8 +681,8 @@ export default function EditQuotation() {
           QUOTATION INFORMATION
       ================================================= */}
 
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div className="border-b border-gray-200 px-6 py-5">
+      <section className="min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-200 px-4 py-4 sm:px-6 sm:py-5">
           <h2 className="font-semibold text-gray-900">Quotation Information</h2>
 
           <p className="mt-1 text-sm text-gray-500">
@@ -574,32 +690,25 @@ export default function EditQuotation() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-5 p-6 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 p-4 sm:gap-5 sm:p-6 md:grid-cols-2">
           {/* CLIENT */}
 
-          <div className="md:col-span-2">
+          <div className="min-w-0 md:col-span-2">
             <label className="mb-2 block text-sm font-medium text-gray-900">
               Client <span className="text-red-500">*</span>
             </label>
 
-            <select
+            <SearchableClientSelect
+              clients={clients as any}
               value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 focus:border-green-500 focus:outline-none"
-            >
-              <option value="">Select Client</option>
-
-              {clients.map((client) => (
-                <option key={getClientId(client)} value={getClientId(client)}>
-                  {getClientName(client) || getClientId(client)}
-                </option>
-              ))}
-            </select>
+              onChange={setClientId}
+              placeholder="Select Client"
+            />
           </div>
 
           {/* QUOTATION NUMBER */}
 
-          <div>
+          <div className="min-w-0">
             <label className="mb-2 block text-sm font-medium text-gray-900">
               Quotation Number
             </label>
@@ -608,13 +717,17 @@ export default function EditQuotation() {
               type="text"
               value={quotationNumber}
               readOnly
-              className="w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-600"
+              className="w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-600"
             />
+
+            <p className="mt-1 break-safe text-xs text-gray-500">
+              Quotation number cannot be changed after creation.
+            </p>
           </div>
 
           {/* DATE */}
 
-          <div>
+          <div className="min-w-0">
             <label className="mb-2 block text-sm font-medium text-gray-900">
               Quotation Date <span className="text-red-500">*</span>
             </label>
@@ -624,13 +737,13 @@ export default function EditQuotation() {
               value={quotationDate}
               onChange={(e) => setQuotationDate(e.target.value)}
               required
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none"
+              className="w-full min-w-0 rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none"
             />
           </div>
 
           {/* VALID UNTIL */}
 
-          <div>
+          <div className="min-w-0">
             <label className="mb-2 block text-sm font-medium text-gray-900">
               Valid Until
             </label>
@@ -638,14 +751,15 @@ export default function EditQuotation() {
             <input
               type="date"
               value={validUntil}
+              min={quotationDate}
               onChange={(e) => setValidUntil(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none"
+              className="w-full min-w-0 rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none"
             />
           </div>
 
           {/* STATUS */}
 
-          <div>
+          <div className="min-w-0">
             <label className="mb-2 block text-sm font-medium text-gray-900">
               Status
             </label>
@@ -667,15 +781,15 @@ export default function EditQuotation() {
             </select>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* =================================================
           SERVICES
       ================================================= */}
 
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-5">
-          <div>
+      <section className="min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="flex min-w-0 flex-col gap-3 border-b border-gray-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
+          <div className="min-w-0">
             <h2 className="font-semibold text-gray-900">Services</h2>
 
             <p className="mt-1 text-sm text-gray-500">
@@ -686,14 +800,14 @@ export default function EditQuotation() {
           <button
             type="button"
             onClick={addServiceRow}
-            className="rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+            className="w-full shrink-0 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
           >
             + Add Service
           </button>
         </div>
 
-        <div className="overflow-x-auto p-6">
-          <table className="min-w-[1100px] w-full">
+        <div className="overflow-x-auto p-3 sm:p-6">
+          <table className="w-full min-w-[1100px]">
             <thead>
               <tr className="bg-green-600">
                 <th className="px-3 py-3 text-center text-xs font-semibold text-white">
@@ -732,7 +846,7 @@ export default function EditQuotation() {
 
             <tbody className="divide-y divide-gray-100">
               {items.map((item, index) => (
-                <tr key={index}>
+                <tr key={`${item.serviceId || "new"}-${index}`}>
                   <td className="px-3 py-4 text-center text-sm">{index + 1}</td>
 
                   {/* SERVICE */}
@@ -789,9 +903,15 @@ export default function EditQuotation() {
                     <input
                       type="number"
                       min="0"
-                      value={item.discount || 0}
+                      max={item.basicCost || 0}
+                      step="0.01"
+                      value={item.discountedCost || 0}
                       onChange={(e) =>
-                        updateItem(index, "discount", Number(e.target.value))
+                        updateItem(
+                          index,
+                          "discountedCost",
+                          Number(e.target.value),
+                        )
                       }
                       className="w-[130px] rounded-lg border border-gray-300 px-3 py-2.5 text-right text-sm"
                     />
@@ -836,44 +956,55 @@ export default function EditQuotation() {
           </table>
         </div>
 
-        {/* TOTAL */}
+        {/* =================================================
+            TOTALS
+        ================================================= */}
 
-        <div className="border-t border-gray-200 px-6 py-6">
-          <div className="ml-auto max-w-md">
-            <div className="flex justify-between border-b py-3 text-sm">
+        <div className="border-t border-gray-200 px-4 py-5 sm:px-6 sm:py-6">
+          <div className="ml-auto w-full max-w-md">
+            <div className="flex items-center justify-between gap-4 border-b py-3 text-sm">
               <span className="text-gray-600">Subtotal</span>
 
-              <span className="font-semibold">{currency(subtotal)}</span>
+              <span className="whitespace-nowrap font-semibold">
+                {currency(subtotal)}
+              </span>
             </div>
 
-            <div className="flex items-center justify-between border-b py-3 text-sm">
+            <div className="flex items-center justify-between gap-4 border-b py-3 text-sm">
               <span className="text-gray-600">GST (%)</span>
 
               <input
                 type="number"
                 min="0"
                 max="100"
+                step="0.01"
                 value={gst}
-                onChange={(e) => setGst(Number(e.target.value))}
+                onChange={(e) =>
+                  setGst(
+                    Math.min(100, Math.max(0, Number(e.target.value) || 0)),
+                  )
+                }
                 className="w-20 rounded-lg border border-gray-300 px-3 py-2 text-right text-sm"
               />
             </div>
 
-            <div className="flex justify-between py-4 text-lg font-bold">
+            <div className="flex items-center justify-between gap-4 py-4 text-lg font-bold">
               <span>Grand Total</span>
 
-              <span className="text-green-700">{currency(grandTotal)}</span>
+              <span className="whitespace-nowrap text-green-700">
+                {currency(grandTotal)}
+              </span>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* =================================================
           ADDITIONAL DETAILS
       ================================================= */}
 
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div className="border-b border-gray-200 px-6 py-5">
+      <section className="min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-200 px-4 py-4 sm:px-6 sm:py-5">
           <h2 className="font-semibold text-gray-900">Additional Details</h2>
 
           <p className="mt-1 text-sm text-gray-500">
@@ -881,9 +1012,11 @@ export default function EditQuotation() {
           </p>
         </div>
 
-        <div className="space-y-5 p-6">
+        <div className="space-y-5 p-4 sm:space-y-6 sm:p-6">
+          {/* SCOPE */}
+
           <div>
-            <label className="mb-2 block text-sm font-medium">
+            <label className="mb-2 block text-sm font-medium text-gray-900">
               Scope of Work
             </label>
 
@@ -892,12 +1025,14 @@ export default function EditQuotation() {
               value={scopeOfWork}
               onChange={(e) => setScopeOfWork(e.target.value)}
               placeholder="Enter scope of work..."
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm"
+              className="w-full min-w-0 rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none"
             />
           </div>
 
+          {/* IMPLEMENTATION */}
+
           <div>
-            <label className="mb-2 block text-sm font-medium">
+            <label className="mb-2 block text-sm font-medium text-gray-900">
               Implementation Process
             </label>
 
@@ -906,12 +1041,14 @@ export default function EditQuotation() {
               value={implementationProcess}
               onChange={(e) => setImplementationProcess(e.target.value)}
               placeholder="Enter implementation process..."
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm"
+              className="w-full min-w-0 rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none"
             />
           </div>
 
+          {/* SUPPORT */}
+
           <div>
-            <label className="mb-2 block text-sm font-medium">
+            <label className="mb-2 block text-sm font-medium text-gray-900">
               Post Sales Support & Training
             </label>
 
@@ -920,24 +1057,30 @@ export default function EditQuotation() {
               value={supportTraining}
               onChange={(e) => setSupportTraining(e.target.value)}
               placeholder="Enter support and training details..."
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm"
+              className="w-full min-w-0 rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none"
             />
           </div>
 
+          {/* REMARKS */}
+
           <div>
-            <label className="mb-2 block text-sm font-medium">Remarks</label>
+            <label className="mb-2 block text-sm font-medium text-gray-900">
+              Remarks
+            </label>
 
             <textarea
               rows={3}
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               placeholder="Enter remarks..."
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm"
+              className="w-full min-w-0 rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none"
             />
           </div>
 
+          {/* TERMS */}
+
           <div>
-            <label className="mb-2 block text-sm font-medium">
+            <label className="mb-2 block text-sm font-medium text-gray-900">
               Terms & Conditions
             </label>
 
@@ -946,30 +1089,32 @@ export default function EditQuotation() {
               value={termsConditions}
               onChange={(e) => setTermsConditions(e.target.value)}
               placeholder="Enter terms and conditions..."
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm"
+              className="w-full min-w-0 rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none"
             />
           </div>
         </div>
 
-        {/* FOOTER */}
+        {/* =================================================
+            FOOTER
+        ================================================= */}
 
-        <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-5">
+        <div className="flex flex-col gap-3 border-t border-gray-200 bg-gray-50 px-4 py-4 sm:flex-row sm:justify-end sm:px-6 sm:py-5">
           <button
             type="button"
             onClick={() => navigate(`/quotations/${quotation.id}`)}
-            className="rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700"
+            className="w-full rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 sm:w-auto"
           >
             Cancel
           </button>
 
           <button
             type="submit"
-            className="rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+            className="w-full rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
           >
             Save Changes
           </button>
         </div>
-      </div>
+      </section>
     </form>
   );
 }

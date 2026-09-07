@@ -16,6 +16,58 @@ import Pagination from "../components/Pagination";
 const PAGE_SIZE = 6;
 
 /* =========================================================
+   HELPERS
+========================================================= */
+
+function getInvoiceSequence(id: string): number {
+  const match = String(id).match(/(\d+)$/);
+
+  if (!match) {
+    return 0;
+  }
+
+  const number = Number(match[1]);
+
+  return Number.isFinite(number) ? number : 0;
+}
+
+/* =========================================================
+   LATEST FIRST SORT
+
+   Global CRM rule:
+
+   Filter
+      ↓
+   Sort - Latest first
+      ↓
+   Pagination
+========================================================= */
+
+function sortInvoicesLatestFirst(invoices: Invoice[]): Invoice[] {
+  return [...invoices].sort((a, b) => {
+    const dateA = new Date(a.createdAt).getTime();
+    const dateB = new Date(b.createdAt).getTime();
+
+    const validA = Number.isFinite(dateA);
+    const validB = Number.isFinite(dateB);
+
+    if (validA && validB && dateA !== dateB) {
+      return dateB - dateA;
+    }
+
+    if (validA && !validB) {
+      return -1;
+    }
+
+    if (!validA && validB) {
+      return 1;
+    }
+
+    return getInvoiceSequence(b.id) - getInvoiceSequence(a.id);
+  });
+}
+
+/* =========================================================
    STATUS STYLES
 ========================================================= */
 
@@ -94,6 +146,18 @@ function getInvoiceClientName(invoice: Invoice): string {
 }
 
 /* =========================================================
+   SUMMARY CARD CLASS
+========================================================= */
+
+function summaryCardClass(accent: string): string {
+  return [
+    "min-w-0 rounded-xl border border-slate-200 border-l-4 bg-white p-4 shadow-sm transition",
+    "hover:shadow-md",
+    accent,
+  ].join(" ");
+}
+
+/* =========================================================
    INVOICE ROW
 ========================================================= */
 
@@ -111,20 +175,41 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
   return (
     <tr className="border-t border-slate-100 hover:bg-slate-50">
       {/* ID */}
+
       <td className="px-4 py-3.5 text-sm text-slate-600">{invoice.id}</td>
 
       {/* CLIENT */}
+
       <td className="px-4 py-3.5">
-        <div className="font-semibold text-sm text-slate-900">{clientName}</div>
+        <div
+          className="max-w-[180px] truncate text-sm font-semibold text-slate-900"
+          title={clientName}
+        >
+          {clientName}
+        </div>
 
         {invoice.quotationNumber && (
-          <div className="mt-1 text-xs text-slate-400">
-            From {invoice.quotationNumber}
+          <div className="mt-1 flex items-center gap-2 text-xs">
+            <span className="text-slate-400">From</span>
+
+            {invoice.quotationId ? (
+              <Link
+                to={`/quotations/${invoice.quotationId}`}
+                className="font-semibold text-green-600 hover:text-green-700 hover:underline"
+              >
+                {invoice.quotationNumber}
+              </Link>
+            ) : (
+              <span className="font-semibold text-slate-500">
+                {invoice.quotationNumber}
+              </span>
+            )}
           </div>
         )}
       </td>
 
       {/* INVOICE NUMBER */}
+
       <td className="px-4 py-3.5">
         <Link
           to={`/invoices/${invoice.id}`}
@@ -134,19 +219,46 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
         </Link>
       </td>
 
+      {/* QUOTATION */}
+
+      <td className="px-4 py-3.5">
+        {invoice.quotationNumber ? (
+          invoice.quotationId ? (
+            <Link
+              to={`/quotations/${invoice.quotationId}`}
+              className="text-sm font-semibold text-green-600 hover:text-green-700 hover:underline"
+            >
+              {invoice.quotationNumber}
+            </Link>
+          ) : (
+            <span className="text-sm font-medium text-slate-600">
+              {invoice.quotationNumber}
+            </span>
+          )
+        ) : (
+          <span className="text-sm text-slate-400">—</span>
+        )}
+      </td>
+
       {/* DATE */}
+
       <td className="px-4 py-3.5 text-sm text-slate-600">
         {formatDate(invoice.invoiceDate)}
       </td>
 
       {/* DUE DATE */}
+
       <td className="px-4 py-3.5 text-sm text-slate-600">
         {formatDate(invoice.dueDate)}
       </td>
 
       {/* SERVICE */}
+
       <td className="px-4 py-3.5">
-        <div className="max-w-[220px] truncate text-sm text-slate-700">
+        <div
+          className="max-w-[220px] truncate text-sm text-slate-700"
+          title={serviceName}
+        >
           {serviceName}
         </div>
 
@@ -158,6 +270,7 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
       </td>
 
       {/* AMOUNT */}
+
       <td className="px-4 py-3.5 text-right">
         <div className="font-semibold text-slate-900">
           {currency(invoice.grandTotal)}
@@ -171,9 +284,10 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
       </td>
 
       {/* STATUS */}
+
       <td className="px-4 py-3.5">
         <span
-          className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ${statusClass(
+          className={`inline-flex whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold ${statusClass(
             invoice.status,
           )}`}
         >
@@ -182,6 +296,7 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
       </td>
 
       {/* ACTION */}
+
       <td className="px-4 py-3.5 text-right">
         <div className="flex items-center justify-end gap-2">
           <Link
@@ -191,12 +306,14 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
             View
           </Link>
 
-          <Link
-            to={`/invoices/${invoice.id}/edit`}
-            className="rounded-lg border border-green-200 bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700 hover:bg-green-100"
-          >
-            Edit
-          </Link>
+          {invoice.status !== "Cancelled" && (
+            <Link
+              to={`/invoices/${invoice.id}/edit`}
+              className="rounded-lg border border-green-200 bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700 hover:bg-green-100"
+            >
+              Edit
+            </Link>
+          )}
         </div>
       </td>
     </tr>
@@ -254,9 +371,11 @@ export default function Invoices() {
   const loadInvoices = useCallback(() => {
     try {
       const data = getInvoicesSorted();
+
       setInvoices(data);
     } catch (error) {
       console.error("Failed to load invoices:", error);
+
       setInvoices([]);
     }
   }, []);
@@ -276,13 +395,19 @@ export default function Invoices() {
   }, [loadInvoices]);
 
   /* =======================================================
-     FILTER
+     FILTER + SORT
+
+     Filter first
+        ↓
+     Latest created invoice first
+        ↓
+     Pagination
   ======================================================= */
 
   const filteredInvoices = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    return invoices.filter((invoice) => {
+    const filtered = invoices.filter((invoice) => {
       const clientName = getInvoiceClientName(invoice);
 
       const matchesSearch =
@@ -290,6 +415,7 @@ export default function Invoices() {
         invoice.invoiceNumber.toLowerCase().includes(query) ||
         clientName.toLowerCase().includes(query) ||
         invoice.id.toLowerCase().includes(query) ||
+        (invoice.quotationNumber || "").toLowerCase().includes(query) ||
         invoice.items.some((item) =>
           item.serviceName.toLowerCase().includes(query),
         );
@@ -299,6 +425,8 @@ export default function Invoices() {
 
       return matchesSearch && matchesStatus;
     });
+
+    return sortInvoicesLatestFirst(filtered);
   }, [invoices, search, statusFilter]);
 
   /* =======================================================
@@ -340,7 +468,7 @@ export default function Invoices() {
   }, [invoices]);
 
   /* =======================================================
-     PAGINATION DISPLAY
+     FOOTER COUNT
   ======================================================= */
 
   const showingStart =
@@ -352,28 +480,17 @@ export default function Invoices() {
       : Math.min(currentPage * PAGE_SIZE, filteredInvoices.length);
 
   /* =======================================================
-     SUMMARY CARD
-  ======================================================= */
-
-  function summaryCardClass(accent: string, ring: string) {
-    return [
-      "rounded-xl border border-slate-200 border-l-4 bg-white p-4 shadow-sm transition",
-      "hover:shadow-md",
-      accent,
-      ring,
-    ].join(" ");
-  }
-
-  /* =======================================================
      RENDER
   ======================================================= */
 
   return (
-    <div className="mx-auto max-w-7xl">
-      {/* PAGE HEADER */}
+    <div className="mx-auto min-w-0 max-w-[1800px]">
+      {/* =====================================================
+          PAGE HEADER
+      ===================================================== */}
 
-      <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+      <div className="mb-4 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-2xl font-bold text-slate-900">Invoices</h2>
 
           <p className="mt-1 text-sm text-slate-500">Manage client invoices</p>
@@ -381,52 +498,28 @@ export default function Invoices() {
 
         <Link
           to="/add-invoice"
-          className="inline-flex w-fit items-center rounded-lg bg-[#16A34A] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#15803D]"
+          className="inline-flex w-full items-center justify-center rounded-lg bg-[#16A34A] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#15803D] sm:w-fit"
         >
           + Add Invoice
         </Link>
       </div>
 
-      {/* SEARCH + FILTER */}
+      {/* =====================================================
+          SUMMARY CARDS
 
-      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_190px]">
-          <input
-            type="text"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search client, invoice number or service..."
-            className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#16A34A] focus:ring-2 focus:ring-green-100"
-          />
+          IMPORTANT:
+          Search/filter is intentionally BELOW these cards,
+          matching Quotations and Payments pages.
+      ===================================================== */}
 
-          <select
-            value={statusFilter}
-            onChange={(event) =>
-              setStatusFilter(event.target.value as "All" | InvoiceStatus)
-            }
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none focus:border-[#16A34A] focus:ring-2 focus:ring-green-100"
-          >
-            <option value="All">All Status</option>
-            <option value="Draft">Draft</option>
-            <option value="Sent">Sent</option>
-            <option value="Partially Paid">Partially Paid</option>
-            <option value="Paid">Paid</option>
-            <option value="Overdue">Overdue</option>
-            <option value="Cancelled">Cancelled</option>
-          </select>
-        </div>
-      </div>
-
-      {/* SUMMARY CARDS */}
-
-      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {/* TOTAL */}
 
-        <div className={summaryCardClass("border-l-[#94A3B8]", "")}>
-          <div className="flex items-center justify-between">
+        <div className={summaryCardClass("border-l-[#94A3B8]")}>
+          <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-medium text-[#334155]">Total</p>
 
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-50 text-sm">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-sm">
               🧾
             </span>
           </div>
@@ -440,11 +533,11 @@ export default function Invoices() {
 
         {/* DRAFT */}
 
-        <div className={summaryCardClass("border-l-[#94A3B8]", "")}>
-          <div className="flex items-center justify-between">
+        <div className={summaryCardClass("border-l-[#94A3B8]")}>
+          <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-medium text-[#334155]">Draft</p>
 
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-50 text-sm">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-sm">
               📝
             </span>
           </div>
@@ -458,11 +551,11 @@ export default function Invoices() {
 
         {/* SENT */}
 
-        <div className={summaryCardClass("border-l-[#3B82F6]", "")}>
-          <div className="flex items-center justify-between">
+        <div className={summaryCardClass("border-l-[#3B82F6]")}>
+          <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-medium text-[#334155]">Sent</p>
 
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-sm">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-sm">
               📤
             </span>
           </div>
@@ -476,11 +569,11 @@ export default function Invoices() {
 
         {/* PAID */}
 
-        <div className={summaryCardClass("border-l-[#16A34A]", "")}>
-          <div className="flex items-center justify-between">
+        <div className={summaryCardClass("border-l-[#16A34A]")}>
+          <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-medium text-[#334155]">Paid</p>
 
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-green-50 text-sm">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-green-50 text-sm">
               ✓
             </span>
           </div>
@@ -494,16 +587,16 @@ export default function Invoices() {
 
         {/* OUTSTANDING */}
 
-        <div className={summaryCardClass("border-l-[#F59E0B]", "")}>
-          <div className="flex items-center justify-between">
+        <div className={summaryCardClass("border-l-[#F59E0B]")}>
+          <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-medium text-[#334155]">Outstanding</p>
 
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50 text-sm">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-sm">
               ₹
             </span>
           </div>
 
-          <p className="mt-2 text-xl font-bold text-[#F59E0B]">
+          <p className="mt-2 break-words text-xl font-bold text-[#F59E0B]">
             {currency(summary.outstanding)}
           </p>
 
@@ -511,11 +604,55 @@ export default function Invoices() {
         </div>
       </div>
 
-      {/* INVOICE TABLE */}
+      {/* =====================================================
+          SEARCH + STATUS FILTER
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
-          <div>
+          Same position as Quotations / Payments.
+      ===================================================== */}
+
+      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_190px]">
+          <input
+            type="text"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search client, invoice no., quotation no. or service..."
+            className="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#16A34A] focus:ring-2 focus:ring-green-100"
+          />
+
+          <select
+            value={statusFilter}
+            onChange={(event) =>
+              setStatusFilter(event.target.value as "All" | InvoiceStatus)
+            }
+            className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none focus:border-[#16A34A] focus:ring-2 focus:ring-green-100"
+          >
+            <option value="All">All Status</option>
+
+            <option value="Draft">Draft</option>
+
+            <option value="Sent">Sent</option>
+
+            <option value="Partially Paid">Partially Paid</option>
+
+            <option value="Paid">Paid</option>
+
+            <option value="Overdue">Overdue</option>
+
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
+      </div>
+
+      {/* =====================================================
+          INVOICE LIST
+      ===================================================== */}
+
+      <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        {/* TABLE HEADER */}
+
+        <div className="flex min-w-0 flex-col gap-2 border-b border-slate-100 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <h3 className="font-semibold text-slate-900">Invoice List</h3>
 
             <p className="mt-1 text-xs text-slate-500">All client invoices</p>
@@ -528,18 +665,20 @@ export default function Invoices() {
                 setSearch("");
                 setStatusFilter("All");
               }}
-              className="text-sm font-semibold text-[#16A34A] hover:text-[#15803D]"
+              className="w-fit text-sm font-semibold text-[#16A34A] hover:text-[#15803D]"
             >
               Clear filters
             </button>
           ) : null}
         </div>
 
-        {/* TABLE */}
+        {/* ===================================================
+            TABLE
+        =================================================== */}
 
         {filteredInvoices.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="min-w-[1250px] w-full border-collapse">
+            <table className="w-full min-w-[1250px] border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-[#F4F7FA] text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="px-4 py-3">ID</th>
@@ -547,6 +686,8 @@ export default function Invoices() {
                   <th className="px-4 py-3">Client</th>
 
                   <th className="px-4 py-3">Invoice No.</th>
+
+                  <th className="px-4 py-3">Quotation</th>
 
                   <th className="px-4 py-3">Date</th>
 
@@ -573,7 +714,9 @@ export default function Invoices() {
           <EmptyState />
         )}
 
-        {/* PAGINATION */}
+        {/* ===================================================
+            PAGINATION
+        =================================================== */}
 
         <Pagination
           currentPage={currentPage}
@@ -583,7 +726,9 @@ export default function Invoices() {
         />
       </div>
 
-      {/* FOOTER COUNT */}
+      {/* =====================================================
+          FOOTER COUNT
+      ===================================================== */}
 
       <div className="mt-3 text-sm text-slate-500">
         Showing{" "}

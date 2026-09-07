@@ -30,9 +30,11 @@ export default function ClientDetails() {
 
   if (!client) {
     return (
-      <div className="space-y-4">
+      <div className="mx-auto w-full max-w-[1800px] min-w-0 space-y-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">Client Not Found</h2>
+          <h2 className="text-xl font-bold text-slate-900 sm:text-2xl">
+            Client Not Found
+          </h2>
 
           <p className="mt-1 text-sm text-slate-500">
             The requested client could not be found.
@@ -42,7 +44,7 @@ export default function ClientDetails() {
         <button
           type="button"
           onClick={() => navigate("/clients")}
-          className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+          className="inline-flex min-h-10 items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800"
         >
           Back to Clients
         </button>
@@ -86,31 +88,36 @@ export default function ClientDetails() {
   ================================================= */
 
   return (
-    <div className="space-y-5">
+    <div className="mx-auto w-full max-w-[1800px] min-w-0 space-y-4 sm:space-y-5">
       {/* =================================================
           PAGE HEADER
       ================================================= */}
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1
+            className="truncate text-xl font-bold text-slate-900 sm:text-2xl"
+            title={client.company}
+          >
             {client.company}
           </h1>
 
-          <p className="mt-1 text-sm text-slate-500">Client ID: {client.id}</p>
+          <p className="mt-1 text-xs text-slate-500 sm:text-sm">
+            Client ID: {client.id}
+          </p>
         </div>
 
         {/* =================================================
             HEADER ACTIONS
         ================================================= */}
 
-        <div className="flex items-center gap-3">
+        <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:items-center sm:gap-2 lg:gap-3">
           {/* Back */}
 
           <button
             type="button"
             onClick={() => navigate("/clients")}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
             ← Back to Clients
           </button>
@@ -120,7 +127,7 @@ export default function ClientDetails() {
           <button
             type="button"
             onClick={() => navigate(`/clients/${client.id}/edit`)}
-            className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-slate-800"
+            className="inline-flex min-h-10 items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800"
           >
             Edit Client
           </button>
@@ -133,18 +140,19 @@ export default function ClientDetails() {
             <button
               type="button"
               onClick={() => setShowMore((prev) => !prev)}
-              className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-xl font-semibold text-slate-700 hover:bg-slate-50"
+              className="flex h-10 w-full items-center justify-center rounded-lg border border-slate-300 bg-white text-xl font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-10"
               aria-label="More actions"
+              aria-expanded={showMore}
             >
               ⋮
             </button>
 
             {showMore && (
-              <div className="absolute right-0 z-30 mt-2 w-48 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+              <div className="absolute right-0 top-full z-30 mt-2 w-48 max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
                 <button
                   type="button"
                   onClick={handleArchive}
-                  className="w-full px-4 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50"
+                  className="w-full px-4 py-2.5 text-left text-sm font-medium text-red-600 transition hover:bg-red-50"
                 >
                   Archive Client
                 </button>
@@ -158,32 +166,37 @@ export default function ClientDetails() {
           CLIENT OVERVIEW
       ================================================= */}
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        {/* Client Information */}
+      <div className="grid min-w-0 grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-3">
+        {/* =================================================
+            CLIENT INFORMATION
+        ================================================= */}
 
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
-          <div className="border-b border-slate-200 px-6 py-4">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
+          <div className="border-b border-slate-200 px-4 py-3.5 sm:px-6 sm:py-4">
             <h2 className="text-base font-semibold text-slate-900">
               Client Information
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 gap-6 p-6 md:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-5 p-4 sm:grid-cols-2 sm:gap-6 sm:p-6">
             {/* Company */}
 
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                 Company Name
               </p>
 
-              <p className="mt-1 text-sm font-semibold text-slate-900">
+              <p
+                className="mt-1 break-words text-sm font-semibold text-slate-900"
+                title={client.company}
+              >
                 {client.company}
               </p>
             </div>
 
             {/* Client ID */}
 
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                 Client ID
               </p>
@@ -193,56 +206,66 @@ export default function ClientDetails() {
 
             {/* Contact Person */}
 
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                 Contact Person
               </p>
 
-              <p className="mt-1 text-sm text-slate-700">
+              <p
+                className="mt-1 break-words text-sm text-slate-700"
+                title={client.contactPerson}
+              >
                 {client.contactPerson}
               </p>
             </div>
 
             {/* Mobile */}
 
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                 Mobile Number
               </p>
 
-              <p className="mt-1 text-sm text-slate-700">{client.phone}</p>
+              <p className="mt-1 break-all text-sm text-slate-700">
+                {client.phone}
+              </p>
             </div>
 
             {/* Email */}
 
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                 Email
               </p>
 
-              <p className="mt-1 text-sm text-slate-700">
+              <p
+                className="mt-1 break-all text-sm text-slate-700"
+                title={client.email || undefined}
+              >
                 {client.email || "—"}
               </p>
             </div>
 
             {/* GST */}
 
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                 GST Number
               </p>
 
-              <p className="mt-1 text-sm text-slate-700">{client.gst || "—"}</p>
+              <p className="mt-1 break-all text-sm text-slate-700">
+                {client.gst || "—"}
+              </p>
             </div>
 
             {/* Address */}
 
-            <div className="md:col-span-2">
+            <div className="min-w-0 sm:col-span-2">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                 Address
               </p>
 
-              <p className="mt-1 text-sm text-slate-700">
+              <p className="mt-1 break-words text-sm leading-6 text-slate-700">
                 {client.address || "—"}
               </p>
             </div>
@@ -253,21 +276,21 @@ export default function ClientDetails() {
             CLIENT STATUS
         ================================================= */}
 
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-6 py-4">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-4 py-3.5 sm:px-6 sm:py-4">
             <h2 className="text-base font-semibold text-slate-900">
               Client Status
             </h2>
           </div>
 
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
               Current Status
             </p>
 
             <div className="mt-3">
               <span
-                className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ${
+                className={`inline-flex whitespace-nowrap rounded-full px-3 py-1 text-sm font-medium ${
                   client.status === "Active"
                     ? "bg-green-50 text-green-700"
                     : client.status === "Pending"
@@ -279,13 +302,16 @@ export default function ClientDetails() {
               </span>
             </div>
 
-            <div className="mt-6">
+            <div className="mt-6 min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                 Services
               </p>
 
               <div className="mt-3">
-                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                <div
+                  className="break-words rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-700"
+                  title={client.services}
+                >
                   {client.services}
                 </div>
               </div>
@@ -298,41 +324,50 @@ export default function ClientDetails() {
           SERVICES & ACTIVITY
       ================================================= */}
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        {/* Active Services */}
+      <div className="grid min-w-0 grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-2">
+        {/* =================================================
+            ACTIVE SERVICES
+        ================================================= */}
 
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-6 py-4">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-4 py-3.5 sm:px-6 sm:py-4">
             <h2 className="text-base font-semibold text-slate-900">
               Active Services
             </h2>
           </div>
 
-          <div className="p-6">
-            <div className="flex items-center justify-between border-b border-slate-100 py-3">
-              <div>
-                <p className="text-sm font-medium text-slate-900">
+          <div className="p-4 sm:p-6">
+            <div className="flex min-w-0 flex-col gap-2 border-b border-slate-100 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p
+                  className="break-words text-sm font-medium text-slate-900"
+                  title={client.services}
+                >
                   {client.services}
                 </p>
 
                 <p className="mt-1 text-xs text-slate-500">Active service</p>
               </div>
 
-              <span className="text-xs font-medium text-green-600">Active</span>
+              <span className="shrink-0 text-xs font-medium text-green-600">
+                Active
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Recent Activity */}
+        {/* =================================================
+            RECENT ACTIVITY
+        ================================================= */}
 
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-6 py-4">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-4 py-3.5 sm:px-6 sm:py-4">
             <h2 className="text-base font-semibold text-slate-900">
               Recent Activity
             </h2>
           </div>
 
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             <div className="border-b border-slate-100 py-3">
               <p className="text-sm font-medium text-slate-900">
                 Client profile created
@@ -346,7 +381,12 @@ export default function ClientDetails() {
                 Service added
               </p>
 
-              <p className="mt-1 text-xs text-slate-500">{client.services}</p>
+              <p
+                className="mt-1 break-words text-xs text-slate-500"
+                title={client.services}
+              >
+                {client.services}
+              </p>
             </div>
 
             <div className="py-3">

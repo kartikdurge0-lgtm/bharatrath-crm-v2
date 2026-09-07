@@ -6,6 +6,47 @@ import { supabase } from "../lib/supabase";
 
 const PAGE_SIZE = 6;
 
+/* =========================================================
+   HELPERS
+========================================================= */
+
+function getServiceSequence(id: string): number {
+  const match = String(id).match(/(\d+)$/);
+
+  if (!match) return 0;
+
+  const number = Number(match[1]);
+
+  return Number.isFinite(number) ? number : 0;
+}
+
+/* =========================================================
+   LATEST SERVICE FIRST
+========================================================= */
+
+function sortServicesLatestFirst(a: Service, b: Service): number {
+  const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+
+  const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+
+  const validA = Number.isFinite(dateA);
+  const validB = Number.isFinite(dateB);
+
+  if (validA && validB && dateA !== dateB) {
+    return dateB - dateA;
+  }
+
+  if (validA && !validB) return -1;
+
+  if (!validA && validB) return 1;
+
+  return getServiceSequence(b.id) - getServiceSequence(a.id);
+}
+
+/* =========================================================
+   MAIN PAGE
+========================================================= */
+
 export default function Services() {
   const navigate = useNavigate();
 
@@ -19,15 +60,16 @@ export default function Services() {
 
   const [currentPage, setCurrentPage] = useState(1);
 
-  /* --------------------------------
-     Load services
-  -------------------------------- */
+  /* =======================================================
+     LOAD SERVICES
+  ======================================================= */
 
   const loadServices = async () => {
     const { data, error } = await supabase
       .from("services")
       .select("*")
-      .order("id", { ascending: true });
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
 
     if (error) {
       console.error("Failed to load services:", error);
@@ -36,16 +78,27 @@ export default function Services() {
 
     const mappedServices: Service[] = (data || []).map((service) => ({
       id: service.service_code || `SRV-${String(service.id).padStart(3, "0")}`,
+
       service_name: service.name,
+
       category: service.category || "",
+
       description: service.description || "",
+
       default_price: Number(service.default_price || 0),
+
       billing_type: service.billing_type,
+
       sac_code: service.sac_code || "",
+
       gst_percent: Number(service.gst_percent || 0) as Service["gst_percent"],
+
       status: service.is_active ? "Active" : "Inactive",
+
       notes: service.notes || "",
+
       createdAt: service.created_at ? service.created_at.substring(0, 10) : "",
+
       updatedAt: service.updated_at || undefined,
     }));
 
@@ -54,41 +107,53 @@ export default function Services() {
     console.log("Services loaded from Supabase:", mappedServices);
   };
 
-  /* --------------------------------
-     Search + Filter
-  -------------------------------- */
-
-  const filteredServices = useMemo(() => {
-    return services.filter((service) => {
-      const searchText = search.toLowerCase().trim();
-
-      const matchesSearch =
-        service.service_name.toLowerCase().includes(searchText) ||
-        service.id.toLowerCase().includes(searchText) ||
-        service.category.toLowerCase().includes(searchText) ||
-        service.description.toLowerCase().includes(searchText);
-
-      const matchesCategory =
-        categoryFilter === "all" || service.category === categoryFilter;
-
-      const matchesStatus =
-        statusFilter === "all" || service.status.toLowerCase() === statusFilter;
-
-      return matchesSearch && matchesCategory && matchesStatus;
-    });
-  }, [services, search, categoryFilter, statusFilter]);
-
-  /* --------------------------------
-     Reset pagination
-  -------------------------------- */
+  /* =======================================================
+     INITIAL LOAD
+  ======================================================= */
 
   useEffect(() => {
-    loadServices();
+    void loadServices();
   }, []);
 
-  /* --------------------------------
-     Pagination
-  -------------------------------- */
+  /* =======================================================
+     FILTER → SORT
+  ======================================================= */
+
+  const filteredServices = useMemo(() => {
+    const searchText = search.toLowerCase().trim();
+
+    return services
+      .filter((service) => {
+        const matchesSearch =
+          searchText === "" ||
+          service.service_name.toLowerCase().includes(searchText) ||
+          service.id.toLowerCase().includes(searchText) ||
+          service.category.toLowerCase().includes(searchText) ||
+          service.description.toLowerCase().includes(searchText);
+
+        const matchesCategory =
+          categoryFilter === "all" || service.category === categoryFilter;
+
+        const matchesStatus =
+          statusFilter === "all" ||
+          service.status.toLowerCase() === statusFilter;
+
+        return matchesSearch && matchesCategory && matchesStatus;
+      })
+      .sort(sortServicesLatestFirst);
+  }, [services, search, categoryFilter, statusFilter]);
+
+  /* =======================================================
+     RESET PAGE WHEN FILTERS CHANGE
+  ======================================================= */
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, categoryFilter, statusFilter]);
+
+  /* =======================================================
+     PAGINATION
+  ======================================================= */
 
   const totalPages = Math.ceil(filteredServices.length / PAGE_SIZE);
 
@@ -108,17 +173,17 @@ export default function Services() {
     return filteredServices.slice(startIndex, startIndex + PAGE_SIZE);
   }, [filteredServices, currentPage]);
 
-  /* --------------------------------
-     Format Price
-  -------------------------------- */
+  /* =======================================================
+     FORMAT PRICE
+  ======================================================= */
 
   const formatPrice = (price: number) => {
     return `₹${Number(price || 0).toLocaleString("en-IN")}`;
   };
 
-  /* --------------------------------
-     Status badge
-  -------------------------------- */
+  /* =======================================================
+     STATUS
+  ======================================================= */
 
   const getStatusClass = (status: Service["status"]) => {
     if (status === "Active") {
@@ -128,9 +193,9 @@ export default function Services() {
     return "border border-slate-200 bg-slate-50 text-slate-600";
   };
 
-  /* --------------------------------
-     Summary counts
-  -------------------------------- */
+  /* =======================================================
+     SUMMARY
+  ======================================================= */
 
   const totalServices = services.length;
 
@@ -143,14 +208,16 @@ export default function Services() {
   ).length;
 
   return (
-    <div className="mx-auto max-w-7xl">
-      {/* --------------------------------
-          Page Header
-      -------------------------------- */}
+    <div className="mx-auto w-full max-w-[1800px] min-w-0">
+      {/* =====================================================
+          PAGE HEADER
+      ===================================================== */}
 
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">Services</h2>
+      <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-xl font-bold text-slate-900 sm:text-2xl">
+            Services
+          </h2>
 
           <p className="mt-1 text-sm text-slate-500">
             Manage your service catalogue and pricing
@@ -160,24 +227,26 @@ export default function Services() {
         <button
           type="button"
           onClick={() => navigate("/add-service")}
-          className="shrink-0 rounded-lg bg-[#16A34A] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#15803D]"
+          className="w-full rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-green-700 md:w-auto"
         >
           + Add Service
         </button>
       </div>
 
-      {/* --------------------------------
-          Summary
-      -------------------------------- */}
+      {/* =====================================================
+          SUMMARY
+      ===================================================== */}
 
-      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {/* Total */}
+      <div className="mb-4 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-3">
+        {/* TOTAL */}
 
-        <div className="rounded-xl border border-slate-200 border-l-4 border-l-[#94A3B8] bg-white p-4 shadow-sm transition hover:shadow-md">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-[#334155]">Total Services</p>
+        <div className="min-w-0 rounded-xl border border-slate-200 border-l-4 border-l-slate-400 bg-white p-4 shadow-sm transition hover:shadow-md">
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate text-sm font-medium text-slate-700">
+              Total Services
+            </p>
 
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-50 text-sm">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-sm">
               🛠️
             </span>
           </div>
@@ -189,35 +258,37 @@ export default function Services() {
           <p className="mt-1 text-xs text-slate-400">All services</p>
         </div>
 
-        {/* Active */}
+        {/* ACTIVE */}
 
-        <div className="rounded-xl border border-slate-200 border-l-4 border-l-[#16A34A] bg-white p-4 shadow-sm transition hover:shadow-md">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-[#334155]">
+        <div className="min-w-0 rounded-xl border border-slate-200 border-l-4 border-l-green-600 bg-white p-4 shadow-sm transition hover:shadow-md">
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate text-sm font-medium text-slate-700">
               Active Services
             </p>
 
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-green-50 text-sm">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-green-50 text-sm">
               ✓
             </span>
           </div>
 
-          <p className="mt-2 text-2xl font-bold text-[#16A34A]">
+          <p className="mt-2 text-2xl font-bold text-green-600">
             {activeServices}
           </p>
 
-          <p className="mt-1 text-xs text-slate-400">Available for quotation</p>
+          <p className="mt-1 truncate text-xs text-slate-400">
+            Available for quotation
+          </p>
         </div>
 
-        {/* Inactive */}
+        {/* INACTIVE */}
 
-        <div className="rounded-xl border border-slate-200 border-l-4 border-l-[#94A3B8] bg-white p-4 shadow-sm transition hover:shadow-md">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-[#334155]">
+        <div className="min-w-0 rounded-xl border border-slate-200 border-l-4 border-l-slate-400 bg-white p-4 shadow-sm transition hover:shadow-md">
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate text-sm font-medium text-slate-700">
               Inactive Services
             </p>
 
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-50 text-sm">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-sm">
               ⏸
             </span>
           </div>
@@ -226,32 +297,34 @@ export default function Services() {
             {inactiveServices}
           </p>
 
-          <p className="mt-1 text-xs text-slate-400">Not currently available</p>
+          <p className="mt-1 truncate text-xs text-slate-400">
+            Not currently available
+          </p>
         </div>
       </div>
 
-      {/* --------------------------------
-          Search + Filters
-      -------------------------------- */}
+      {/* =====================================================
+          SEARCH + FILTERS
+      ===================================================== */}
 
-      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          {/* Search */}
+          {/* SEARCH */}
 
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search service, category or ID..."
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#16A34A] focus:ring-2 focus:ring-green-100"
+            className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-green-600 focus:ring-2 focus:ring-green-100"
           />
 
-          {/* Category */}
+          {/* CATEGORY */}
 
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#16A34A] focus:ring-2 focus:ring-green-100"
+            className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-green-600 focus:ring-2 focus:ring-green-100"
           >
             <option value="all">All Categories</option>
 
@@ -270,12 +343,12 @@ export default function Services() {
             <option value="Other">Other</option>
           </select>
 
-          {/* Status */}
+          {/* STATUS */}
 
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#16A34A] focus:ring-2 focus:ring-green-100"
+            className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-green-600 focus:ring-2 focus:ring-green-100"
           >
             <option value="all">All Status</option>
 
@@ -286,12 +359,12 @@ export default function Services() {
         </div>
       </div>
 
-      {/* --------------------------------
-          Services Table
-      -------------------------------- */}
+      {/* =====================================================
+          SERVICES TABLE
+      ===================================================== */}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-5 py-3.5">
+        <div className="border-b border-slate-100 px-4 py-3.5 sm:px-5">
           <h3 className="font-semibold text-slate-900">Service Catalogue</h3>
 
           <p className="mt-1 text-xs text-slate-500">
@@ -302,7 +375,7 @@ export default function Services() {
         {paginatedServices.length > 0 ? (
           <>
             <div className="overflow-x-auto">
-              <table className="min-w-[1000px] w-full">
+              <table className="w-full min-w-[1000px]">
                 <thead>
                   <tr className="border-b border-slate-200 bg-[#F4F7FA]">
                     <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -341,46 +414,55 @@ export default function Services() {
                       key={service.id}
                       className="transition hover:bg-slate-50"
                     >
-                      {/* Service */}
+                      {/* SERVICE */}
 
                       <td className="px-5 py-3.5">
                         <div className="min-w-[220px]">
-                          <p className="text-sm font-semibold text-slate-900">
+                          <p
+                            className="truncate text-sm font-semibold text-slate-900"
+                            title={service.service_name}
+                          >
                             {service.service_name}
                           </p>
 
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p
+                            className="mt-1 truncate text-xs text-slate-500"
+                            title={service.id}
+                          >
                             {service.id}
                           </p>
 
                           {service.description && (
-                            <p className="mt-1 max-w-[280px] truncate text-xs text-slate-400">
+                            <p
+                              className="mt-1 max-w-[280px] truncate text-xs text-slate-400"
+                              title={service.description}
+                            >
                               {service.description}
                             </p>
                           )}
                         </div>
                       </td>
 
-                      {/* Category */}
+                      {/* CATEGORY */}
 
                       <td className="px-5 py-3.5">
-                        <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
+                        <span className="inline-flex max-w-[180px] truncate rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
                           {service.category || "—"}
                         </span>
                       </td>
 
-                      {/* Billing */}
+                      {/* BILLING */}
 
                       <td className="px-5 py-3.5">
-                        <span className="text-sm text-slate-700">
+                        <span className="whitespace-nowrap text-sm text-slate-700">
                           {service.billing_type}
                         </span>
                       </td>
 
-                      {/* Price */}
+                      {/* PRICE */}
 
                       <td className="px-5 py-3.5">
-                        <p className="text-sm font-semibold text-slate-900">
+                        <p className="whitespace-nowrap text-sm font-semibold text-slate-900">
                           {formatPrice(service.default_price)}
                         </p>
                       </td>
@@ -388,16 +470,16 @@ export default function Services() {
                       {/* GST */}
 
                       <td className="px-5 py-3.5">
-                        <span className="text-sm text-slate-700">
+                        <span className="whitespace-nowrap text-sm text-slate-700">
                           {service.gst_percent}%
                         </span>
                       </td>
 
-                      {/* Status */}
+                      {/* STATUS */}
 
                       <td className="px-5 py-3.5">
                         <span
-                          className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ${getStatusClass(
+                          className={`inline-flex whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold ${getStatusClass(
                             service.status,
                           )}`}
                         >
@@ -405,7 +487,7 @@ export default function Services() {
                         </span>
                       </td>
 
-                      {/* Actions */}
+                      {/* ACTIONS */}
 
                       <td className="px-5 py-3.5">
                         <div className="flex items-center justify-end gap-2">
@@ -434,14 +516,14 @@ export default function Services() {
               </table>
             </div>
 
-            {/* --------------------------------
-                Pagination
-            -------------------------------- */}
+            {/* =================================================
+                PAGINATION
+            ================================================= */}
 
-            <div className="border-t border-slate-100">
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between px-5 py-3">
-                  <p className="text-xs text-slate-500">
+            {totalPages > 1 && (
+              <div className="border-t border-slate-100">
+                <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                  <p className="text-center text-xs text-slate-500 sm:text-left">
                     Showing{" "}
                     <span className="font-semibold text-slate-700">
                       {(currentPage - 1) * PAGE_SIZE + 1}-
@@ -456,7 +538,7 @@ export default function Services() {
                     </span>
                   </p>
 
-                  <div className="flex items-center gap-1">
+                  <div className="flex flex-wrap items-center justify-center gap-1 sm:justify-end">
                     <button
                       type="button"
                       disabled={currentPage === 1}
@@ -469,7 +551,9 @@ export default function Services() {
                     </button>
 
                     {Array.from(
-                      { length: totalPages },
+                      {
+                        length: totalPages,
+                      },
                       (_, index) => index + 1,
                     ).map((page) => (
                       <button
@@ -478,7 +562,7 @@ export default function Services() {
                         onClick={() => setCurrentPage(page)}
                         className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
                           currentPage === page
-                            ? "bg-[#16A34A] text-white"
+                            ? "bg-green-600 text-white"
                             : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                         }`}
                       >
@@ -498,8 +582,8 @@ export default function Services() {
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </>
         ) : (
           <div className="px-5 py-12 text-center">
@@ -516,7 +600,7 @@ export default function Services() {
             <button
               type="button"
               onClick={() => navigate("/add-service")}
-              className="mt-4 rounded-lg bg-[#16A34A] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#15803D]"
+              className="mt-4 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
             >
               + Add Service
             </button>
@@ -524,12 +608,12 @@ export default function Services() {
         )}
       </div>
 
-      {/* --------------------------------
-          Footer
-      -------------------------------- */}
+      {/* =====================================================
+          FOOTER COUNT
+      ===================================================== */}
 
       {filteredServices.length > 0 && (
-        <div className="mt-3 text-xs text-slate-500">
+        <div className="mt-3 text-center text-xs text-slate-500 sm:text-left">
           Showing{" "}
           <span className="font-semibold text-slate-700">
             {(currentPage - 1) * PAGE_SIZE + 1}-

@@ -7,6 +7,27 @@ import {
   type SalesPerson,
 } from "../data/salesPersonStore";
 
+const PAGE_SIZE = 6;
+
+/* --------------------------------
+   Sales Person ID sorting
+   Latest / highest sequence first
+-------------------------------- */
+
+function getSalesPersonSequence(id: string): number {
+  const match = id.match(/(\d+)$/);
+
+  if (!match) return 0;
+
+  const number = Number(match[1]);
+
+  return Number.isFinite(number) ? number : 0;
+}
+
+function sortSalesPersonsLatestFirst(a: SalesPerson, b: SalesPerson): number {
+  return getSalesPersonSequence(b.id) - getSalesPersonSequence(a.id);
+}
+
 export default function SalesPersons() {
   const navigate = useNavigate();
 
@@ -16,34 +37,118 @@ export default function SalesPersons() {
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
 
+  const [currentPage, setCurrentPage] = useState(1);
+
+  /* --------------------------------
+     Load sales persons
+  -------------------------------- */
+
   const refresh = async () => {
-    const data = await getSalesPersons();
-    setSalesPersons(data);
+    try {
+      const data = await getSalesPersons();
+      setSalesPersons(data);
+    } catch (error) {
+      console.error("Failed to load sales persons:", error);
+      setSalesPersons([]);
+    }
   };
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, []);
+
+  /* --------------------------------
+     Filter → Sort
+  -------------------------------- */
 
   const filteredSalesPersons = useMemo(() => {
     const searchText = search.trim().toLowerCase();
 
-    return salesPersons.filter((person) => {
-      const matchesSearch =
-        !searchText ||
-        person.name.toLowerCase().includes(searchText) ||
-        person.mobile.toLowerCase().includes(searchText) ||
-        person.email.toLowerCase().includes(searchText) ||
-        person.id.toLowerCase().includes(searchText);
+    return salesPersons
+      .filter((person) => {
+        const matchesSearch =
+          !searchText ||
+          person.name.toLowerCase().includes(searchText) ||
+          person.mobile.toLowerCase().includes(searchText) ||
+          person.email.toLowerCase().includes(searchText) ||
+          person.id.toLowerCase().includes(searchText);
 
-      const matchesType = typeFilter === "All" || person.type === typeFilter;
+        const matchesType = typeFilter === "All" || person.type === typeFilter;
 
-      const matchesStatus =
-        statusFilter === "All" || person.status === statusFilter;
+        const matchesStatus =
+          statusFilter === "All" || person.status === statusFilter;
 
-      return matchesSearch && matchesType && matchesStatus;
-    });
+        return matchesSearch && matchesType && matchesStatus;
+      })
+      .sort(sortSalesPersonsLatestFirst);
   }, [salesPersons, search, typeFilter, statusFilter]);
+
+  /* --------------------------------
+     Reset pagination when filters change
+  -------------------------------- */
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, typeFilter, statusFilter]);
+
+  /* --------------------------------
+     Pagination
+  -------------------------------- */
+
+  const totalPages = Math.ceil(filteredSalesPersons.length / PAGE_SIZE);
+
+  useEffect(() => {
+    if (totalPages === 0 && currentPage !== 1) {
+      setCurrentPage(1);
+      return;
+    }
+
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const paginatedSalesPersons = useMemo(() => {
+    const startIndex = (currentPage - 1) * PAGE_SIZE;
+
+    return filteredSalesPersons.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [filteredSalesPersons, currentPage]);
+
+  /* --------------------------------
+     Pagination page numbers
+     First 2 + current area + last 2
+  -------------------------------- */
+
+  const pageNumbers = useMemo(() => {
+    if (totalPages <= 5) {
+      return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
+
+    const pages = new Set<number>();
+
+    pages.add(1);
+    pages.add(2);
+    pages.add(totalPages - 1);
+    pages.add(totalPages);
+
+    pages.add(currentPage);
+
+    if (currentPage > 1) {
+      pages.add(currentPage - 1);
+    }
+
+    if (currentPage < totalPages) {
+      pages.add(currentPage + 1);
+    }
+
+    return Array.from(pages)
+      .filter((page) => page >= 1 && page <= totalPages)
+      .sort((a, b) => a - b);
+  }, [currentPage, totalPages]);
+
+  /* --------------------------------
+     Summary
+  -------------------------------- */
 
   const activeCount = salesPersons.filter(
     (person) => person.status === "Active",
@@ -53,24 +158,37 @@ export default function SalesPersons() {
     (person) => person.status === "Inactive",
   ).length;
 
-  const handleToggleStatus = async (person: SalesPerson) => {
-    if (person.status === "Active") {
-      await deactivateSalesPerson(person.id);
-    } else {
-      await activateSalesPerson(person.id);
-    }
+  /* --------------------------------
+     Toggle status
+  -------------------------------- */
 
-    await refresh();
+  const handleToggleStatus = async (person: SalesPerson) => {
+    try {
+      if (person.status === "Active") {
+        await deactivateSalesPerson(person.id);
+      } else {
+        await activateSalesPerson(person.id);
+      }
+
+      await refresh();
+    } catch (error) {
+      console.error("Failed to update sales person status:", error);
+
+      window.alert("Failed to update Sales Person status. Please try again.");
+    }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
+    <div className="min-w-0 space-y-6">
+      {/* --------------------------------
+          Header
+      -------------------------------- */}
+
+      <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-gray-900">Sales Persons</h1>
 
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 break-words text-sm text-gray-500">
             Manage sales persons and their commission settings
           </p>
         </div>
@@ -78,15 +196,18 @@ export default function SalesPersons() {
         <button
           type="button"
           onClick={() => navigate("/add-sales-person")}
-          className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+          className="inline-flex w-full shrink-0 items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 sm:w-auto"
         >
           + Add Sales Person
         </button>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      {/* --------------------------------
+          Summary Cards
+      -------------------------------- */}
+
+      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-gray-500">Total Sales Persons</p>
 
           <p className="mt-2 text-2xl font-bold text-gray-900">
@@ -94,7 +215,7 @@ export default function SalesPersons() {
           </p>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-gray-500">Active</p>
 
           <p className="mt-2 text-2xl font-bold text-green-600">
@@ -102,7 +223,7 @@ export default function SalesPersons() {
           </p>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-gray-500">Inactive</p>
 
           <p className="mt-2 text-2xl font-bold text-gray-500">
@@ -111,21 +232,24 @@ export default function SalesPersons() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px_180px]">
+      {/* --------------------------------
+          Filters
+      -------------------------------- */}
+
+      <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_180px_180px]">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name, mobile, email or ID..."
-            className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="min-w-0 w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
 
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
+            className="min-w-0 w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
           >
             <option value="All">All Types</option>
             <option value="Staff">Staff</option>
@@ -136,7 +260,7 @@ export default function SalesPersons() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
+            className="min-w-0 w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
           >
             <option value="All">All Status</option>
             <option value="Active">Active</option>
@@ -145,54 +269,70 @@ export default function SalesPersons() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
+      {/* --------------------------------
+          Table
+      -------------------------------- */}
+
+      <div className="min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="w-full overflow-x-auto">
+          <table className="min-w-[900px] w-full text-sm">
             <thead className="border-b border-gray-200 bg-gray-50">
               <tr>
-                <th className="px-5 py-3 text-left font-semibold text-gray-600">
+                <th className="whitespace-nowrap px-5 py-3 text-left font-semibold text-gray-600">
                   Sales Person
                 </th>
 
-                <th className="px-5 py-3 text-left font-semibold text-gray-600">
+                <th className="whitespace-nowrap px-5 py-3 text-left font-semibold text-gray-600">
                   Contact
                 </th>
 
-                <th className="px-5 py-3 text-left font-semibold text-gray-600">
+                <th className="whitespace-nowrap px-5 py-3 text-left font-semibold text-gray-600">
                   Type
                 </th>
 
-                <th className="px-5 py-3 text-left font-semibold text-gray-600">
+                <th className="whitespace-nowrap px-5 py-3 text-left font-semibold text-gray-600">
                   Commission
                 </th>
 
-                <th className="px-5 py-3 text-left font-semibold text-gray-600">
+                <th className="whitespace-nowrap px-5 py-3 text-left font-semibold text-gray-600">
                   Status
                 </th>
 
-                <th className="px-5 py-3 text-right font-semibold text-gray-600">
+                <th className="whitespace-nowrap px-5 py-3 text-right font-semibold text-gray-600">
                   Action
                 </th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-gray-100">
-              {filteredSalesPersons.length === 0 ? (
+              {paginatedSalesPersons.length === 0 ? (
                 <tr>
                   <td
                     colSpan={6}
                     className="px-5 py-12 text-center text-gray-500"
                   >
-                    No sales persons found.
+                    <div className="text-2xl">👥</div>
+
+                    <p className="mt-2 font-medium text-gray-700">
+                      No sales persons found.
+                    </p>
+
+                    <p className="mt-1 text-xs text-gray-400">
+                      Try changing your search or filters.
+                    </p>
                   </td>
                 </tr>
               ) : (
-                filteredSalesPersons.map((person) => (
+                paginatedSalesPersons.map((person) => (
                   <tr key={person.id} className="transition hover:bg-gray-50">
-                    <td className="px-5 py-4">
-                      <div>
-                        <p className="font-semibold text-gray-900">
+                    {/* Sales Person */}
+
+                    <td className="max-w-[220px] px-5 py-4">
+                      <div className="min-w-0">
+                        <p
+                          className="truncate font-semibold text-gray-900"
+                          title={person.name}
+                        >
                           {person.name}
                         </p>
 
@@ -202,48 +342,66 @@ export default function SalesPersons() {
                       </div>
                     </td>
 
-                    <td className="px-5 py-4">
-                      <div className="space-y-0.5">
-                        <p className="text-gray-700">{person.mobile || "—"}</p>
+                    {/* Contact */}
 
-                        <p className="text-xs text-gray-500">
+                    <td className="max-w-[260px] px-5 py-4">
+                      <div className="min-w-0 space-y-0.5">
+                        <p
+                          className="truncate text-gray-700"
+                          title={person.mobile || ""}
+                        >
+                          {person.mobile || "—"}
+                        </p>
+
+                        <p
+                          className="truncate text-xs text-gray-500"
+                          title={person.email || ""}
+                        >
                           {person.email || "—"}
                         </p>
                       </div>
                     </td>
 
-                    <td className="px-5 py-4">
-                      <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
+                    {/* Type */}
+
+                    <td className="whitespace-nowrap px-5 py-4">
+                      <span className="inline-flex rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
                         {person.type}
                       </span>
                     </td>
 
-                    <td className="px-5 py-4">
+                    {/* Commission */}
+
+                    <td className="whitespace-nowrap px-5 py-4">
                       <span className="font-semibold text-gray-900">
                         {person.commissionPercent}%
                       </span>
                     </td>
 
-                    <td className="px-5 py-4">
+                    {/* Status */}
+
+                    <td className="whitespace-nowrap px-5 py-4">
                       {person.status === "Active" ? (
-                        <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+                        <span className="inline-flex rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
                           Active
                         </span>
                       ) : (
-                        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-500">
+                        <span className="inline-flex rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-500">
                           Inactive
                         </span>
                       )}
                     </td>
 
+                    {/* Actions */}
+
                     <td className="px-5 py-4">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
                         <button
                           type="button"
                           onClick={() =>
                             navigate(`/sales-persons/${person.id}/edit`)
                           }
-                          className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                          className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50"
                         >
                           Edit
                         </button>
@@ -253,8 +411,8 @@ export default function SalesPersons() {
                           onClick={() => handleToggleStatus(person)}
                           className={
                             person.status === "Active"
-                              ? "rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
-                              : "rounded-lg border border-green-200 px-3 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50"
+                              ? "rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50"
+                              : "rounded-lg border border-green-200 px-3 py-1.5 text-xs font-medium text-green-600 transition hover:bg-green-50"
                           }
                         >
                           {person.status === "Active"
@@ -270,10 +428,97 @@ export default function SalesPersons() {
           </table>
         </div>
 
-        <div className="border-t border-gray-100 px-5 py-3 text-xs text-gray-500">
-          Showing {filteredSalesPersons.length} of {salesPersons.length} sales
-          persons
-        </div>
+        {/* --------------------------------
+            Pagination
+        -------------------------------- */}
+
+        {filteredSalesPersons.length > 0 && (
+          <div className="border-t border-gray-100">
+            <div className="flex min-w-0 flex-col gap-3 px-4 py-3 sm:px-5 md:flex-row md:items-center md:justify-between">
+              <p className="text-xs text-gray-500">
+                Showing{" "}
+                <span className="font-semibold text-gray-700">
+                  {(currentPage - 1) * PAGE_SIZE + 1}-
+                  {Math.min(
+                    currentPage * PAGE_SIZE,
+                    filteredSalesPersons.length,
+                  )}
+                </span>{" "}
+                of{" "}
+                <span className="font-semibold text-gray-700">
+                  {filteredSalesPersons.length}
+                </span>{" "}
+                sales persons
+              </p>
+
+              {totalPages > 1 && (
+                <div className="flex max-w-full flex-wrap items-center justify-start gap-1 md:justify-end">
+                  {/* Previous */}
+
+                  <button
+                    type="button"
+                    disabled={currentPage === 1}
+                    onClick={() =>
+                      setCurrentPage((page) => Math.max(1, page - 1))
+                    }
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+
+                  {/* Page numbers */}
+
+                  {pageNumbers.map((page, index) => {
+                    const previousPage = pageNumbers[index - 1];
+
+                    const showEllipsis =
+                      index > 0 &&
+                      previousPage !== undefined &&
+                      page - previousPage > 1;
+
+                    return (
+                      <span
+                        key={page}
+                        className="inline-flex items-center gap-1"
+                      >
+                        {showEllipsis && (
+                          <span className="px-1 text-xs text-gray-400">
+                            ...
+                          </span>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPage(page)}
+                          className={`min-w-[32px] rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                            currentPage === page
+                              ? "bg-blue-600 text-white"
+                              : "border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      </span>
+                    );
+                  })}
+
+                  {/* Next */}
+
+                  <button
+                    type="button"
+                    disabled={currentPage === totalPages}
+                    onClick={() =>
+                      setCurrentPage((page) => Math.min(totalPages, page + 1))
+                    }
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

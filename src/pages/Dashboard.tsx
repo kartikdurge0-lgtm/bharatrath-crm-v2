@@ -50,9 +50,10 @@ export default function Dashboard() {
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [renewals, setRenewals] = useState<Renewal[]>(defaultRenewals);
 
-  /* --------------------------------
-     Load CRM data
-  -------------------------------- */
+  /* =====================================================
+     LOAD CRM DATA
+  ===================================================== */
+
   useEffect(() => {
     let mounted = true;
 
@@ -91,7 +92,7 @@ export default function Dashboard() {
       }
     };
 
-    loadDashboardData();
+    void loadDashboardData();
 
     window.addEventListener("focus", loadDashboardData);
 
@@ -101,25 +102,39 @@ export default function Dashboard() {
     };
   }, []);
 
-  /* --------------------------------
-     Active clients
-  -------------------------------- */
+  /* =====================================================
+     ACTIVE CLIENTS
+  ===================================================== */
+
   const activeClients = useMemo(() => {
     return clients.filter(
       (client) => client.status === "Active" && !client.archived,
     );
   }, [clients]);
 
-  /* --------------------------------
-     Open follow-ups
-  -------------------------------- */
+  /* =====================================================
+     OPEN FOLLOW-UPS
+  ===================================================== */
+
   const openFollowUps = useMemo(() => {
-    return followUps.filter((followUp) => followUp.status === "Pending");
+    return followUps
+      .filter((followUp) => followUp.status === "Pending")
+      .sort((a, b) => {
+        const dateA = new Date(a.followUpDate).getTime();
+        const dateB = new Date(b.followUpDate).getTime();
+
+        if (Number.isFinite(dateA) && Number.isFinite(dateB)) {
+          return dateA - dateB;
+        }
+
+        return 0;
+      });
   }, [followUps]);
 
-  /* --------------------------------
-     Upcoming renewals
-  -------------------------------- */
+  /* =====================================================
+     UPCOMING RENEWALS
+  ===================================================== */
+
   const upcomingRenewals = useMemo(() => {
     return renewals
       .filter((renewal) => renewal.status !== "Overdue")
@@ -130,9 +145,10 @@ export default function Dashboard() {
       .slice(0, 5);
   }, [renewals]);
 
-  /* --------------------------------
-     Renewal count
-  -------------------------------- */
+  /* =====================================================
+     RENEWAL COUNT
+  ===================================================== */
+
   const activeRenewalCount = useMemo(() => {
     return renewals.filter(
       (renewal) =>
@@ -140,37 +156,59 @@ export default function Dashboard() {
     ).length;
   }, [renewals]);
 
-  /* --------------------------------
-     Pending payments
-  -------------------------------- */
+  /* =====================================================
+     PENDING PAYMENTS
+  ===================================================== */
+
   const pendingPayments = 42500;
 
-  /* --------------------------------
-     Recent clients
-  -------------------------------- */
+  /* =====================================================
+     RECENT CLIENTS
+  ===================================================== */
+
   const recentClients = useMemo(() => {
     return [...clients]
       .filter((client) => !client.archived)
-      .slice(-5)
-      .reverse();
+      .sort((a, b) => {
+        const getSequence = (id: string) => {
+          const match = id.match(/(\d+)$/);
+
+          if (!match) return 0;
+
+          const value = Number(match[1]);
+
+          return Number.isFinite(value) ? value : 0;
+        };
+
+        return getSequence(b.id) - getSequence(a.id);
+      })
+      .slice(0, 5);
   }, [clients]);
 
-  /* --------------------------------
-     Format date
-  -------------------------------- */
+  /* =====================================================
+     FORMAT DATE
+  ===================================================== */
+
   const formatDate = (date: string) => {
     if (!date) return "-";
 
-    return new Date(date).toLocaleDateString("en-IN", {
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return "-";
+    }
+
+    return parsedDate.toLocaleDateString("en-IN", {
       day: "2-digit",
       month: "short",
       year: "numeric",
     });
   };
 
-  /* --------------------------------
-     Dashboard statistics
-  -------------------------------- */
+  /* =====================================================
+     DASHBOARD STATISTICS
+  ===================================================== */
+
   const stats = [
     {
       title: "Total Clients",
@@ -211,50 +249,48 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full max-w-[1800px] min-w-0 space-y-4 sm:space-y-5">
       {/* =================================================
           PAGE HEADER
       ================================================= */}
 
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-2xl font-bold leading-tight text-slate-900">
-            Dashboard
-          </h2>
+      <div className="min-w-0">
+        <h2 className="text-xl font-bold leading-tight text-slate-900 sm:text-2xl">
+          Dashboard
+        </h2>
 
-          <p className="mt-1 text-sm text-slate-500">
-            Overview of your Bharatrath CRM
-          </p>
-        </div>
+        <p className="mt-1 text-xs text-slate-500 sm:text-sm">
+          Overview of your Bharatrath CRM
+        </p>
       </div>
 
       {/* =================================================
           STATISTICS
       ================================================= */}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => (
           <div
             key={stat.title}
-            className={`rounded-xl border border-slate-200 border-l-4 ${stat.border} bg-white p-4 shadow-sm transition hover:shadow-md`}
+            className={`min-w-0 rounded-xl border border-slate-200 border-l-4 ${stat.border} bg-white p-3.5 shadow-sm transition hover:shadow-md sm:p-4`}
           >
-            <div className="flex items-start justify-between">
+            <div className="flex min-w-0 items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-500">
+                <p className="truncate text-xs font-medium text-slate-500 sm:text-sm">
                   {stat.title}
                 </p>
 
-                <p className="mt-1.5 text-2xl font-bold text-slate-900">
+                <p className="mt-1.5 truncate text-xl font-bold text-slate-900 sm:text-2xl">
                   {stat.value}
                 </p>
 
-                <p className="mt-1 text-xs text-slate-400">
+                <p className="mt-1 truncate text-[11px] text-slate-400 sm:text-xs">
                   {stat.description}
                 </p>
               </div>
 
               <div
-                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${stat.iconBg} ${stat.iconText} text-lg`}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${stat.iconBg} ${stat.iconText} text-base sm:h-10 sm:w-10 sm:text-lg`}
               >
                 {stat.icon}
               </div>
@@ -267,17 +303,19 @@ export default function Dashboard() {
           RECENT CLIENTS + UPCOMING RENEWALS
       ================================================= */}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        {/* Recent Clients */}
+      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
+        {/* =================================================
+            RECENT CLIENTS
+        ================================================= */}
 
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex min-w-0 items-center justify-between gap-3 border-b border-slate-100 px-3.5 py-3 sm:px-4">
+            <div className="min-w-0">
+              <h3 className="truncate text-sm font-semibold text-slate-900">
                 Recent Clients
               </h3>
 
-              <p className="mt-0.5 text-xs text-slate-500">
+              <p className="mt-0.5 truncate text-[11px] text-slate-500 sm:text-xs">
                 Recently added clients
               </p>
             </div>
@@ -285,7 +323,7 @@ export default function Dashboard() {
             <button
               type="button"
               onClick={() => navigate("/clients")}
-              className="text-xs font-semibold text-green-600 hover:text-green-700"
+              className="shrink-0 text-xs font-semibold text-green-600 hover:text-green-700"
             >
               View all →
             </button>
@@ -298,20 +336,20 @@ export default function Dashboard() {
                   type="button"
                   key={client.id}
                   onClick={() => navigate(`/clients/${client.id}`)}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-green-50/50"
+                  className="flex w-full min-w-0 items-center justify-between gap-3 px-3.5 py-3 text-left transition hover:bg-green-50/50 sm:px-4"
                 >
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-slate-900">
                       {client.company}
                     </p>
 
-                    <p className="mt-0.5 text-xs text-slate-500">
+                    <p className="mt-0.5 truncate text-xs text-slate-500">
                       {client.services}
                     </p>
                   </div>
 
                   <span
-                    className={`ml-4 shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                    className={`ml-1 shrink-0 rounded-full px-2 py-1 text-[10px] font-medium sm:px-2.5 sm:text-[11px] ${
                       client.status === "Active"
                         ? "bg-green-50 text-green-700"
                         : client.status === "Pending"
@@ -331,16 +369,18 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Upcoming Renewals */}
+        {/* =================================================
+            UPCOMING RENEWALS
+        ================================================= */}
 
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex min-w-0 items-center justify-between gap-3 border-b border-slate-100 px-3.5 py-3 sm:px-4">
+            <div className="min-w-0">
+              <h3 className="truncate text-sm font-semibold text-slate-900">
                 Upcoming Renewals
               </h3>
 
-              <p className="mt-0.5 text-xs text-slate-500">
+              <p className="mt-0.5 truncate text-[11px] text-slate-500 sm:text-xs">
                 Renewals requiring attention
               </p>
             </div>
@@ -348,7 +388,7 @@ export default function Dashboard() {
             <button
               type="button"
               onClick={() => navigate("/renewals")}
-              className="text-xs font-semibold text-green-600 hover:text-green-700"
+              className="shrink-0 text-xs font-semibold text-green-600 hover:text-green-700"
             >
               View all →
             </button>
@@ -361,19 +401,19 @@ export default function Dashboard() {
                   type="button"
                   key={renewal.id}
                   onClick={() => navigate(`/renewals/${renewal.id}`)}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-green-50/50"
+                  className="flex w-full min-w-0 items-center justify-between gap-3 px-3.5 py-3 text-left transition hover:bg-green-50/50 sm:px-4"
                 >
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-slate-900">
                       {renewal.clientName}
                     </p>
 
-                    <p className="mt-0.5 text-xs text-slate-500">
+                    <p className="mt-0.5 truncate text-xs text-slate-500">
                       {renewal.service} · {formatDate(renewal.renewalDate)}
                     </p>
                   </div>
 
-                  <p className="ml-4 shrink-0 text-sm font-semibold text-slate-900">
+                  <p className="ml-1 shrink-0 text-xs font-semibold text-slate-900 sm:text-sm">
                     ₹{renewal.amount.toLocaleString("en-IN")}
                   </p>
                 </button>
@@ -391,14 +431,14 @@ export default function Dashboard() {
           OPEN FOLLOW-UPS
       ================================================= */}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex min-w-0 items-center justify-between gap-3 border-b border-slate-100 px-3.5 py-3 sm:px-4">
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold text-slate-900">
               Open Follow-ups
             </h3>
 
-            <p className="mt-0.5 text-xs text-slate-500">
+            <p className="mt-0.5 truncate text-[11px] text-slate-500 sm:text-xs">
               Follow-ups that need attention
             </p>
           </div>
@@ -406,7 +446,7 @@ export default function Dashboard() {
           <button
             type="button"
             onClick={() => navigate("/follow-ups")}
-            className="text-xs font-semibold text-green-600 hover:text-green-700"
+            className="shrink-0 text-xs font-semibold text-green-600 hover:text-green-700"
           >
             View all →
           </button>
@@ -419,20 +459,20 @@ export default function Dashboard() {
                 type="button"
                 key={followUp.id}
                 onClick={() => navigate(`/follow-ups/${followUp.id}`)}
-                className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-green-50/50"
+                className="flex w-full min-w-0 items-center justify-between gap-3 px-3.5 py-3 text-left transition hover:bg-green-50/50 sm:px-4"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-slate-900">
                     {followUp.clientName}
                   </p>
 
-                  <p className="mt-0.5 text-xs text-slate-500">
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
                     {followUp.purpose} · {formatDate(followUp.followUpDate)}
                   </p>
                 </div>
 
                 <span
-                  className={`ml-4 shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                  className={`ml-1 shrink-0 rounded-full px-2 py-1 text-[10px] font-medium sm:px-2.5 sm:text-[11px] ${
                     followUp.priority === "High"
                       ? "bg-red-50 text-red-700"
                       : followUp.priority === "Medium"
@@ -456,99 +496,109 @@ export default function Dashboard() {
           QUICK ACTIONS
       ================================================= */}
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div>
+      <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold text-slate-900">
             Quick Actions
           </h3>
 
-          <p className="mt-0.5 text-xs text-slate-500">Common CRM actions</p>
+          <p className="mt-0.5 text-[11px] text-slate-500 sm:text-xs">
+            Common CRM actions
+          </p>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {/* Add Client */}
+        <div className="mt-3 grid min-w-0 grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+          {/* =================================================
+              ADD CLIENT
+          ================================================= */}
 
           <button
             type="button"
             onClick={() => navigate("/add-client")}
-            className="group flex items-center gap-3 rounded-lg border border-green-100 bg-green-50 px-4 py-3 text-left transition hover:border-green-200 hover:bg-green-100"
+            className="flex min-w-0 items-center gap-3 rounded-lg border border-green-100 bg-green-50 px-3.5 py-3 text-left transition hover:border-green-200 hover:bg-green-100 sm:px-4"
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-lg shadow-sm">
               👥
             </span>
 
-            <span>
-              <span className="block text-sm font-semibold text-green-800">
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold text-green-800">
                 Add Client
               </span>
 
-              <span className="mt-0.5 block text-[11px] text-green-600">
+              <span className="mt-0.5 block truncate text-[11px] text-green-600">
                 New client
               </span>
             </span>
           </button>
 
-          {/* New Quotation */}
+          {/* =================================================
+              NEW QUOTATION
+          ================================================= */}
 
           <button
             type="button"
             onClick={() => navigate("/quotations")}
-            className="group flex items-center gap-3 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-left transition hover:border-blue-200 hover:bg-blue-100"
+            className="flex min-w-0 items-center gap-3 rounded-lg border border-blue-100 bg-blue-50 px-3.5 py-3 text-left transition hover:border-blue-200 hover:bg-blue-100 sm:px-4"
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-lg shadow-sm">
               📋
             </span>
 
-            <span>
-              <span className="block text-sm font-semibold text-blue-800">
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold text-blue-800">
                 New Quotation
               </span>
 
-              <span className="mt-0.5 block text-[11px] text-blue-600">
+              <span className="mt-0.5 block truncate text-[11px] text-blue-600">
                 Create quote
               </span>
             </span>
           </button>
 
-          {/* Create Invoice */}
+          {/* =================================================
+              CREATE INVOICE
+          ================================================= */}
 
           <button
             type="button"
             onClick={() => navigate("/invoices")}
-            className="group flex items-center gap-3 rounded-lg border border-orange-100 bg-orange-50 px-4 py-3 text-left transition hover:border-orange-200 hover:bg-orange-100"
+            className="flex min-w-0 items-center gap-3 rounded-lg border border-orange-100 bg-orange-50 px-3.5 py-3 text-left transition hover:border-orange-200 hover:bg-orange-100 sm:px-4"
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-lg shadow-sm">
               🧾
             </span>
 
-            <span>
-              <span className="block text-sm font-semibold text-orange-800">
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold text-orange-800">
                 Create Invoice
               </span>
 
-              <span className="mt-0.5 block text-[11px] text-orange-600">
+              <span className="mt-0.5 block truncate text-[11px] text-orange-600">
                 New invoice
               </span>
             </span>
           </button>
 
-          {/* Add Renewal */}
+          {/* =================================================
+              ADD RENEWAL
+          ================================================= */}
 
           <button
             type="button"
             onClick={() => navigate("/renewals")}
-            className="group flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-slate-300 hover:bg-slate-100"
+            className="flex min-w-0 items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-left transition hover:border-slate-300 hover:bg-slate-100 sm:px-4"
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-lg shadow-sm">
               🔄
             </span>
 
-            <span>
-              <span className="block text-sm font-semibold text-slate-800">
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold text-slate-800">
                 Add Renewal
               </span>
 
-              <span className="mt-0.5 block text-[11px] text-slate-500">
+              <span className="mt-0.5 block truncate text-[11px] text-slate-500">
                 New renewal
               </span>
             </span>

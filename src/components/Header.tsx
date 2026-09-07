@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
@@ -66,7 +66,7 @@ export default function Header() {
       });
     };
 
-    loadUser();
+    void loadUser();
 
     const {
       data: { subscription },
@@ -132,14 +132,10 @@ export default function Header() {
       }
     }
 
-    loadNotifications();
+    void loadNotifications();
 
-    /*
-     * Refresh notifications when the browser window
-     * receives focus again.
-     */
     const handleFocus = () => {
-      loadNotifications();
+      void loadNotifications();
     };
 
     window.addEventListener("focus", handleFocus);
@@ -154,28 +150,30 @@ export default function Header() {
      TODAY / OVERDUE FOLLOW-UPS
   ===================================================== */
 
-  const getTodayString = () => {
-    const today = new Date();
+  const today = useMemo(() => {
+    const date = new Date();
 
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, "0");
-    const day = String(today.getDate()).padStart(2, "0");
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
 
     return `${year}-${month}-${day}`;
-  };
+  }, []);
 
-  const today = getTodayString();
-
-  const pendingFollowUps = followUps.filter(
-    (followUp) => followUp.status === "Pending",
+  const pendingFollowUps = useMemo(
+    () => followUps.filter((followUp) => followUp.status === "Pending"),
+    [followUps],
   );
 
-  const todayFollowUps = pendingFollowUps.filter(
-    (followUp) => followUp.followUpDate === today,
+  const todayFollowUps = useMemo(
+    () =>
+      pendingFollowUps.filter((followUp) => followUp.followUpDate === today),
+    [pendingFollowUps, today],
   );
 
-  const overdueFollowUps = pendingFollowUps.filter(
-    (followUp) => followUp.followUpDate < today,
+  const overdueFollowUps = useMemo(
+    () => pendingFollowUps.filter((followUp) => followUp.followUpDate < today),
+    [pendingFollowUps, today],
   );
 
   const notificationCount = todayFollowUps.length + overdueFollowUps.length;
@@ -233,7 +231,6 @@ export default function Header() {
 
   const handleNotificationClick = (followUp: FollowUp) => {
     setShowNotifications(false);
-
     navigate(`/follow-ups/${followUp.id}`);
   };
 
@@ -315,197 +312,223 @@ export default function Header() {
   };
 
   return (
-    <header className="relative flex h-16 shrink-0 items-center justify-end border-b border-slate-200 bg-white px-4 md:px-6">
-      <div className="flex items-center gap-4">
-        {/* =================================================
-            NOTIFICATIONS
-        ================================================= */}
+    <header className="relative z-30 flex h-16 min-w-0 shrink-0 items-center border-b border-slate-200 bg-white px-3 sm:px-4 md:px-6">
+      {/* =================================================
+          HEADER CONTENT
 
-        <div ref={notificationRef} className="relative">
-          <button
-            type="button"
-            onClick={() => {
-              setShowNotifications((value) => !value);
-              setShowMenu(false);
-            }}
-            className="relative flex h-10 w-10 items-center justify-center rounded-lg text-xl transition hover:bg-slate-100"
-            aria-label="Notifications"
-            aria-expanded={showNotifications}
-          >
-            🔔
-            {notificationCount > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                {notificationCount > 99 ? "99+" : notificationCount}
-              </span>
-            )}
-          </button>
+          On mobile the left side remains available for the
+          menu button from DashboardLayout.
+      ================================================= */}
 
-          {/* Notification Panel */}
-          {showNotifications && (
-            <div className="absolute right-0 top-12 z-50 w-[360px] max-w-[calc(100vw-32px)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-              {/* Header */}
-              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">
-                    Notifications
-                  </p>
+      <div className="ml-12 flex min-w-0 flex-1 items-center justify-end sm:ml-0">
+        <div className="flex min-w-0 items-center gap-1.5 sm:gap-3 md:gap-4">
+          {/* =================================================
+              NOTIFICATIONS
+          ================================================= */}
 
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    {notificationCount > 0
-                      ? `${notificationCount} pending follow-up${
-                          notificationCount === 1 ? "" : "s"
-                        }`
-                      : "No pending follow-ups"}
-                  </p>
+          <div ref={notificationRef} className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setShowNotifications((value) => !value);
+                setShowMenu(false);
+              }}
+              className="relative flex h-10 w-10 items-center justify-center rounded-lg text-xl transition hover:bg-slate-100"
+              aria-label="Notifications"
+              aria-expanded={showNotifications}
+            >
+              🔔
+              {notificationCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                  {notificationCount > 99 ? "99+" : notificationCount}
+                </span>
+              )}
+            </button>
+
+            {/* Notification Panel */}
+
+            {showNotifications && (
+              <div className="fixed left-3 right-3 top-[68px] z-[60] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl sm:absolute sm:left-auto sm:right-0 sm:top-12 sm:w-[360px]">
+                {/* Header */}
+
+                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800">
+                      Notifications
+                    </p>
+
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {notificationCount > 0
+                        ? `${notificationCount} pending follow-up${
+                            notificationCount === 1 ? "" : "s"
+                          }`
+                        : "No pending follow-ups"}
+                    </p>
+                  </div>
+
+                  {notificationCount > 0 && (
+                    <span className="ml-2 shrink-0 rounded-full bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-600">
+                      {notificationCount} Pending
+                    </span>
+                  )}
                 </div>
+
+                {/* Content */}
+
+                <div className="max-h-[min(420px,calc(100vh-150px))] overflow-y-auto">
+                  {loadingNotifications ? (
+                    <div className="px-4 py-10 text-center">
+                      <p className="text-sm text-slate-500">
+                        Loading notifications...
+                      </p>
+                    </div>
+                  ) : notificationCount === 0 ? (
+                    <div className="px-4 py-10 text-center">
+                      <div className="text-3xl">✓</div>
+
+                      <p className="mt-2 text-sm font-medium text-slate-700">
+                        All caught up
+                      </p>
+
+                      <p className="mt-1 text-xs text-slate-400">
+                        No today or overdue follow-ups.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Overdue */}
+
+                      {overdueFollowUps.length > 0 && (
+                        <div>
+                          <div className="bg-red-50 px-4 py-2">
+                            <p className="text-xs font-bold uppercase tracking-wide text-red-600">
+                              Overdue ({overdueFollowUps.length})
+                            </p>
+                          </div>
+
+                          {overdueFollowUps.map((followUp) => (
+                            <NotificationItem
+                              key={`overdue-${followUp.id}`}
+                              followUp={followUp}
+                              overdue
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Today */}
+
+                      {todayFollowUps.length > 0 && (
+                        <div>
+                          <div className="bg-orange-50 px-4 py-2">
+                            <p className="text-xs font-bold uppercase tracking-wide text-orange-600">
+                              Today ({todayFollowUps.length})
+                            </p>
+                          </div>
+
+                          {todayFollowUps.map((followUp) => (
+                            <NotificationItem
+                              key={`today-${followUp.id}`}
+                              followUp={followUp}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Footer */}
 
                 {notificationCount > 0 && (
-                  <span className="rounded-full bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-600">
-                    {notificationCount} Pending
-                  </span>
+                  <div className="border-t border-slate-100 bg-slate-50 p-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowNotifications(false);
+                        navigate("/follow-ups");
+                      }}
+                      className="w-full rounded-lg px-3 py-2 text-center text-xs font-semibold text-green-700 transition hover:bg-green-50"
+                    >
+                      View All Follow-ups →
+                    </button>
+                  </div>
                 )}
               </div>
+            )}
+          </div>
 
-              {/* Content */}
-              <div className="max-h-[420px] overflow-y-auto">
-                {loadingNotifications ? (
-                  <div className="px-4 py-10 text-center">
-                    <p className="text-sm text-slate-500">
-                      Loading notifications...
-                    </p>
-                  </div>
-                ) : notificationCount === 0 ? (
-                  <div className="px-4 py-10 text-center">
-                    <div className="text-3xl">✓</div>
+          {/* =================================================
+              DIVIDER
+          ================================================= */}
 
-                    <p className="mt-2 text-sm font-medium text-slate-700">
-                      All caught up
-                    </p>
+          <div className="hidden h-8 w-px bg-slate-200 sm:block" />
 
-                    <p className="mt-1 text-xs text-slate-400">
-                      No today or overdue follow-ups.
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    {/* Overdue */}
-                    {overdueFollowUps.length > 0 && (
-                      <div>
-                        <div className="bg-red-50 px-4 py-2">
-                          <p className="text-xs font-bold uppercase tracking-wide text-red-600">
-                            Overdue ({overdueFollowUps.length})
-                          </p>
-                        </div>
+          {/* =================================================
+              USER + MENU
+          ================================================= */}
 
-                        {overdueFollowUps.map((followUp) => (
-                          <NotificationItem
-                            key={`overdue-${followUp.id}`}
-                            followUp={followUp}
-                            overdue
-                          />
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Today */}
-                    {todayFollowUps.length > 0 && (
-                      <div>
-                        <div className="bg-orange-50 px-4 py-2">
-                          <p className="text-xs font-bold uppercase tracking-wide text-orange-600">
-                            Today ({todayFollowUps.length})
-                          </p>
-                        </div>
-
-                        {todayFollowUps.map((followUp) => (
-                          <NotificationItem
-                            key={`today-${followUp.id}`}
-                            followUp={followUp}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
+          <div ref={menuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setShowMenu((value) => !value);
+                setShowNotifications(false);
+              }}
+              className="flex items-center gap-2 rounded-lg px-1.5 py-1.5 transition hover:bg-slate-50 sm:gap-3 sm:px-2"
+              aria-expanded={showMenu}
+              aria-haspopup="menu"
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-green-100 text-xs font-bold text-green-700 sm:h-10 sm:w-10 sm:text-sm">
+                {user.initials}
               </div>
 
-              {/* Footer */}
-              {notificationCount > 0 && (
-                <div className="border-t border-slate-100 bg-slate-50 p-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowNotifications(false);
-                      navigate("/follow-ups");
-                    }}
-                    className="w-full rounded-lg px-3 py-2 text-center text-xs font-semibold text-green-700 transition hover:bg-green-50"
-                  >
-                    View All Follow-ups →
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="h-8 w-px bg-slate-200" />
-
-        {/* =================================================
-            USER + MENU
-        ================================================= */}
-
-        <div ref={menuRef} className="relative">
-          <button
-            type="button"
-            onClick={() => {
-              setShowMenu((value) => !value);
-              setShowNotifications(false);
-            }}
-            className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-slate-50"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100 text-sm font-bold text-green-700">
-              {user.initials}
-            </div>
-
-            <div className="hidden text-left sm:block">
-              <p className="text-sm font-semibold text-slate-800">
-                {user.name}
-              </p>
-
-              <p className="text-xs text-slate-500">{user.role}</p>
-            </div>
-
-            <span className="ml-1 text-xs text-slate-400">▾</span>
-          </button>
-
-          {/* User Menu */}
-          {showMenu && (
-            <div className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-              <div className="border-b border-slate-100 px-3 py-3">
-                <p className="text-sm font-semibold text-slate-800">
+              <div className="hidden min-w-0 text-left sm:block">
+                <p className="max-w-[180px] truncate text-sm font-semibold text-slate-800">
                   {user.name}
                 </p>
 
-                <p className="mt-1 truncate text-xs text-slate-500">
-                  {user.email}
-                </p>
-
-                <span className="mt-2 inline-flex rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
-                  {user.role}
-                </span>
+                <p className="text-xs text-slate-500">{user.role}</p>
               </div>
 
-              <button
-                type="button"
-                onClick={handleLogout}
-                disabled={loggingOut}
-                className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
-              >
-                <span>↪</span>
+              <span className="hidden text-xs text-slate-400 sm:block">▾</span>
+            </button>
 
-                {loggingOut ? "Signing out..." : "Logout"}
-              </button>
-            </div>
-          )}
+            {/* User Menu */}
+
+            {showMenu && (
+              <div
+                role="menu"
+                className="fixed right-3 top-[68px] z-[60] w-[calc(100vw-24px)] max-w-64 rounded-xl border border-slate-200 bg-white p-2 shadow-lg sm:absolute sm:right-0 sm:top-12 sm:w-64 sm:max-w-none"
+              >
+                <div className="border-b border-slate-100 px-3 py-3">
+                  <p className="truncate text-sm font-semibold text-slate-800">
+                    {user.name}
+                  </p>
+
+                  <p className="mt-1 truncate text-xs text-slate-500">
+                    {user.email}
+                  </p>
+
+                  <span className="mt-2 inline-flex rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
+                    {user.role}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                  className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+                >
+                  <span>↪</span>
+
+                  {loggingOut ? "Signing out..." : "Logout"}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </header>

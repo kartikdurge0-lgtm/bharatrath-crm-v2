@@ -221,6 +221,11 @@ export default function AddPaymentModal({
       return;
     }
 
+    if (paymentSummary.balance <= 0) {
+      setError("This invoice is already fully paid.");
+      return;
+    }
+
     if (!paymentDate) {
       setError("Please select payment date.");
       return;

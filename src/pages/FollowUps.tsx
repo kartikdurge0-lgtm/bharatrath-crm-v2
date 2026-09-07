@@ -189,10 +189,10 @@ export default function FollowUps() {
       }
     }
 
-    loadFollowUps();
+    void loadFollowUps();
 
     const handleFocus = () => {
-      loadFollowUps();
+      void loadFollowUps();
     };
 
     window.addEventListener("focus", handleFocus);
@@ -226,7 +226,7 @@ export default function FollowUps() {
       }
     }
 
-    loadSalesPersons();
+    void loadSalesPersons();
 
     return () => {
       mounted = false;
@@ -248,7 +248,13 @@ export default function FollowUps() {
   }, [salesPersons]);
 
   /* =================================================
-     FILTERED FOLLOW-UPS
+     FILTERED + SORTED FOLLOW-UPS
+     
+     IMPORTANT:
+     Latest CREATED entry first.
+     Oldest CREATED entry last.
+     
+     Filter → Sort → Pagination
   ================================================= */
 
   const filteredFollowUps = useMemo(() => {
@@ -279,18 +285,22 @@ export default function FollowUps() {
       })
       .filter((followUp) => {
         if (!relatedType) return true;
+
         return followUp.relatedType === relatedType;
       })
       .filter((followUp) => {
         if (!priority) return true;
+
         return followUp.priority === priority;
       })
       .filter((followUp) => {
         if (!status) return true;
+
         return followUp.status === status;
       })
       .filter((followUp) => {
         if (!assignedTo) return true;
+
         return followUp.assignedTo === assignedTo;
       })
       .filter((followUp) => {
@@ -313,10 +323,41 @@ export default function FollowUps() {
         return true;
       })
       .sort((a, b) => {
-        const aDate = `${a.followUpDate} ${a.followUpTime}`;
-        const bDate = `${b.followUpDate} ${b.followUpTime}`;
+        /*
+         * IMPORTANT:
+         * createdAt determines entry order.
+         *
+         * Newest = first
+         * Oldest = last
+         */
 
-        return aDate.localeCompare(bDate);
+        const dateA = new Date(a.createdAt).getTime();
+        const dateB = new Date(b.createdAt).getTime();
+
+        /*
+         * If createdAt is valid, newest first.
+         */
+        if (Number.isFinite(dateA) && Number.isFinite(dateB)) {
+          return dateB - dateA;
+        }
+
+        /*
+         * Safe fallback:
+         * Follow-up ID is numeric and normally increases
+         * with every new entry.
+         *
+         * FU-010 should come before FU-009.
+         */
+
+        const idA = Number(a.id.replace(/\D/g, ""));
+
+        const idB = Number(b.id.replace(/\D/g, ""));
+
+        if (Number.isFinite(idA) && Number.isFinite(idB)) {
+          return idB - idA;
+        }
+
+        return 0;
       });
   }, [
     followUps,
@@ -387,6 +428,7 @@ export default function FollowUps() {
       setFollowUps(updatedFollowUps);
     } catch (error) {
       console.error("Failed to complete follow-up:", error);
+
       alert("Failed to complete follow-up. Please try again.");
     }
   }
@@ -400,6 +442,7 @@ export default function FollowUps() {
       setFollowUps(updatedFollowUps);
     } catch (error) {
       console.error("Failed to reopen follow-up:", error);
+
       alert("Failed to reopen follow-up. Please try again.");
     }
   }
@@ -857,7 +900,7 @@ export default function FollowUps() {
                           {followUp.status === "Pending" ? (
                             <button
                               type="button"
-                              onClick={() => handleComplete(followUp.id)}
+                              onClick={() => void handleComplete(followUp.id)}
                               className="rounded-lg bg-[#16A34A] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#15803D]"
                             >
                               Complete
@@ -865,7 +908,7 @@ export default function FollowUps() {
                           ) : (
                             <button
                               type="button"
-                              onClick={() => handleReopen(followUp.id)}
+                              onClick={() => void handleReopen(followUp.id)}
                               className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-600 hover:bg-blue-100"
                             >
                               Reopen

@@ -9,6 +9,7 @@ import {
 
 import { getClients, type Client } from "../data/clientStore";
 import { getServices } from "../data/serviceStore";
+import SearchableClientSelect from "../components/SearchableClientSelect";
 
 export default function AddRenewal() {
   const navigate = useNavigate();
@@ -16,16 +17,19 @@ export default function AddRenewal() {
   /* --------------------------------
      Clients
   -------------------------------- */
+
   const [clients, setClients] = useState<Client[]>([]);
 
   /* --------------------------------
      Services
   -------------------------------- */
+
   const [services, setServices] = useState<ReturnType<typeof getServices>>([]);
 
   /* --------------------------------
      Form
   -------------------------------- */
+
   const [form, setForm] = useState({
     clientId: "",
     service: "",
@@ -37,6 +41,7 @@ export default function AddRenewal() {
   /* --------------------------------
      Load Clients & Services
   -------------------------------- */
+
   useEffect(() => {
     const loadedClients = getClients().filter((client) => !client.archived);
 
@@ -52,11 +57,13 @@ export default function AddRenewal() {
   /* --------------------------------
      Selected Client
   -------------------------------- */
+
   const selectedClient = clients.find((client) => client.id === form.clientId);
 
   /* --------------------------------
      Update Form Field
   -------------------------------- */
+
   const updateField = (field: keyof typeof form, value: string) => {
     setForm((current) => ({
       ...current,
@@ -65,15 +72,9 @@ export default function AddRenewal() {
   };
 
   /* --------------------------------
-     Get Service Name
-     
-     Supports common service master
-     field names without breaking
-     the existing serviceStore type.
-
-  /* --------------------------------
      Get Initial Renewal Status
   -------------------------------- */
+
   const getInitialStatus = (date: string): Renewal["status"] => {
     if (!date) {
       return "Upcoming";
@@ -105,6 +106,7 @@ export default function AddRenewal() {
   /* --------------------------------
      Submit
   -------------------------------- */
+
   const handleSubmit = () => {
     if (!form.clientId) {
       window.alert("Please select a client.");
@@ -128,7 +130,7 @@ export default function AddRenewal() {
 
     const amount = Number(form.amount);
 
-    if (Number.isNaN(amount) || amount < 0) {
+    if (!Number.isFinite(amount) || amount < 0) {
       window.alert("Please enter a valid amount.");
       return;
     }
@@ -136,6 +138,7 @@ export default function AddRenewal() {
     /* --------------------------------
        Create Renewal
     -------------------------------- */
+
     const newRenewal: Renewal = {
       id: generateRenewalId(),
 
@@ -159,6 +162,7 @@ export default function AddRenewal() {
     /* --------------------------------
        Save Renewal
     -------------------------------- */
+
     addRenewal(newRenewal);
 
     window.alert("Renewal added successfully.");
@@ -167,12 +171,13 @@ export default function AddRenewal() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-[1200px] min-w-0 space-y-4 sm:space-y-6">
       {/* --------------------------------
           Header
       -------------------------------- */}
-      <div className="flex items-center justify-between">
-        <div>
+
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-2xl font-bold text-slate-900">Add Renewal</h2>
 
           <p className="mt-1 text-sm text-slate-500">
@@ -183,7 +188,7 @@ export default function AddRenewal() {
         <button
           type="button"
           onClick={() => navigate("/renewals")}
-          className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          className="w-full shrink-0 rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
         >
           ← Back to Renewals
         </button>
@@ -192,9 +197,11 @@ export default function AddRenewal() {
       {/* --------------------------------
           Form Card
       -------------------------------- */}
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+
+      <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {/* Card Header */}
-        <div className="border-b border-slate-200 px-6 py-5">
+
+        <div className="border-b border-slate-200 px-4 py-4 sm:px-6 sm:py-5">
           <h3 className="text-lg font-semibold text-slate-900">
             Renewal Information
           </h3>
@@ -205,28 +212,23 @@ export default function AddRenewal() {
         </div>
 
         {/* Fields */}
-        <div className="grid grid-cols-1 gap-5 p-6 md:grid-cols-2">
+
+        <div className="grid min-w-0 grid-cols-1 gap-5 p-4 sm:p-6 md:grid-cols-2">
           {/* --------------------------------
               Client
           -------------------------------- */}
-          <div>
+
+          <div className="min-w-0">
             <label className="mb-2 block text-sm font-medium text-slate-700">
               Client *
             </label>
 
-            <select
+            <SearchableClientSelect
+              clients={clients}
               value={form.clientId}
-              onChange={(e) => updateField("clientId", e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100"
-            >
-              <option value="">Select client</option>
-
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.company} ({client.id})
-                </option>
-              ))}
-            </select>
+              onChange={(clientId) => updateField("clientId", clientId)}
+              placeholder="Select client"
+            />
 
             {clients.length === 0 && (
               <p className="mt-2 text-xs text-slate-500">
@@ -236,9 +238,10 @@ export default function AddRenewal() {
           </div>
 
           {/* --------------------------------
-            Service
+              Service
           -------------------------------- */}
-          <div>
+
+          <div className="min-w-0">
             <label className="mb-2 block text-sm font-medium text-slate-700">
               Service *
             </label>
@@ -279,6 +282,7 @@ export default function AddRenewal() {
           {/* --------------------------------
               Renewal Date
           -------------------------------- */}
+
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">
               Renewal Date *
@@ -295,6 +299,7 @@ export default function AddRenewal() {
           {/* --------------------------------
               Renewal Amount
           -------------------------------- */}
+
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">
               Renewal Amount *
@@ -319,7 +324,8 @@ export default function AddRenewal() {
           {/* --------------------------------
               Notes
           -------------------------------- */}
-          <div className="md:col-span-2">
+
+          <div className="min-w-0 md:col-span-2">
             <label className="mb-2 block text-sm font-medium text-slate-700">
               Notes
             </label>
@@ -329,7 +335,7 @@ export default function AddRenewal() {
               onChange={(e) => updateField("notes", e.target.value)}
               rows={4}
               placeholder="Add any renewal notes..."
-              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100"
+              className="w-full resize-y rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100"
             />
           </div>
         </div>
@@ -337,15 +343,16 @@ export default function AddRenewal() {
         {/* --------------------------------
             Renewal Status Preview
         -------------------------------- */}
+
         {form.clientId && form.renewalDate && (
-          <div className="mx-6 mb-6 rounded-lg border border-green-100 bg-green-50 p-4">
+          <div className="mx-4 mb-5 rounded-lg border border-green-100 bg-green-50 p-4 sm:mx-6 sm:mb-6">
             <p className="text-xs font-semibold uppercase tracking-wide text-green-700">
               Renewal Status Preview
             </p>
 
-            <div className="mt-3 flex flex-wrap items-center gap-3">
+            <div className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
               <span
-                className={`inline-flex rounded-full px-3 py-1.5 text-xs font-medium ${
+                className={`inline-flex w-fit rounded-full px-3 py-1.5 text-xs font-medium ${
                   getInitialStatus(form.renewalDate) === "Upcoming"
                     ? "bg-green-100 text-green-700"
                     : getInitialStatus(form.renewalDate) === "Due Soon"
@@ -356,13 +363,21 @@ export default function AddRenewal() {
                 {getInitialStatus(form.renewalDate)}
               </span>
 
-              <span className="text-sm text-slate-600">
+              <span
+                title={selectedClient?.company}
+                className="max-w-full truncate text-sm text-slate-600"
+              >
                 {selectedClient?.company}
               </span>
 
-              <span className="text-sm text-slate-500">
-                · {form.service || "Service"}
-              </span>
+              {form.service && (
+                <span
+                  title={form.service}
+                  className="max-w-full truncate text-sm text-slate-500"
+                >
+                  · {form.service}
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -370,11 +385,12 @@ export default function AddRenewal() {
         {/* --------------------------------
             Footer
         -------------------------------- */}
-        <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+
+        <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-6">
           <button
             type="button"
             onClick={() => navigate("/renewals")}
-            className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="w-full rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
           >
             Cancel
           </button>
@@ -382,7 +398,7 @@ export default function AddRenewal() {
           <button
             type="button"
             onClick={handleSubmit}
-            className="rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+            className="w-full rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
           >
             Save Renewal
           </button>

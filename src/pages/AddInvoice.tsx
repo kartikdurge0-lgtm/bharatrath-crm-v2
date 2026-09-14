@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
@@ -13,7 +13,7 @@ import {
 
 import { getInvoiceSettings } from "../data/settingsStore";
 
-import { getClients } from "../data/clientStore";
+import { getActiveClientsFromSupabase } from "../data/clientStore";
 import SearchableClientSelect from "../components/SearchableClientSelect";
 
 import { getServices } from "../data/serviceStore";
@@ -64,16 +64,102 @@ export default function AddInvoice() {
      DATA
   ======================================================= */
 
-  const clients = useMemo(() => getClients(), []);
+  const [clients, setClients] = useState<
+    Awaited<ReturnType<typeof getActiveClientsFromSupabase>>
+  >([]);
 
-  const services = useMemo(() => getServices(), []);
+  useEffect(() => {
+    let mounted = true;
 
-  const quotation = useMemo<Quotation | null>(() => {
-    if (!quotationId) {
-      return null;
+    void getActiveClientsFromSupabase()
+      .then((data) => {
+        if (mounted) setClients(data);
+      })
+      .catch((error) => {
+        console.error("Failed to load clients:", error);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const [services, setServices] = useState<
+    Awaited<ReturnType<typeof getServices>>
+  >([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadServices = async () => {
+      try {
+        const loadedServices = await getServices();
+
+        if (mounted) {
+          setServices(loadedServices);
+        }
+      } catch (error) {
+        console.error("Failed to load services:", error);
+      }
+    };
+
+    void loadServices();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const [quotation, setQuotation] = useState<Quotation | null>(null);
+  const [quotationLoading, setQuotationLoading] = useState<boolean>(
+    Boolean(quotationId),
+  );
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadQuotation() {
+      if (!quotationId) {
+        if (mounted) {
+          setQuotation(null);
+          setQuotationLoading(false);
+        }
+        return;
+      }
+
+      setQuotationLoading(true);
+
+      try {
+        const data = await getQuotation(quotationId);
+
+        if (!mounted) {
+          return;
+        }
+
+        setQuotation(data);
+      } catch (error) {
+        console.error("Failed to load quotation:", error);
+
+        if (mounted) {
+          setQuotation(null);
+          setError(
+            error instanceof Error
+              ? error.message
+              : "Failed to load quotation.",
+          );
+        }
+      } finally {
+        if (mounted) {
+          setQuotationLoading(false);
+        }
+      }
     }
 
-    return getQuotation(quotationId);
+    void loadQuotation();
+
+    return () => {
+      mounted = false;
+    };
   }, [quotationId]);
 
   /* =======================================================
@@ -88,32 +174,35 @@ export default function AddInvoice() {
 
   const quotationClientId = quotation?.clientId || "";
 
-  const quotationItems: InvoiceItem[] =
-    quotation?.items?.map((item, index) => ({
-      id: `ITEM-${Date.now()}-${index}`,
+  const quotationItems = useMemo<InvoiceItem[]>(
+    () =>
+      quotation?.items?.map((item, index) => ({
+        id: `ITEM-QUOTATION-${index}`,
 
-      serviceId: item.serviceId ? String(item.serviceId) : undefined,
+        serviceId: item.serviceId ? String(item.serviceId) : undefined,
 
-      serviceName: item.description || "",
+        serviceName: item.description || "",
 
-      description: item.description || "",
+        description: item.description || "",
 
-      sac: item.sac || "",
+        sac: item.sac || "",
 
-      basicCost: Number(item.basicCost) || 0,
+        basicCost: Number(item.basicCost) || 0,
 
-      discount: Number(item.discountedCost) || 0,
+        discount: Number(item.discountedCost) || 0,
 
-      finalCost: Number(item.finalCost) || 0,
+        finalCost: Number(item.finalCost) || 0,
 
-      frequency: item.frequency || "",
-    })) || [];
+        frequency: item.frequency || "",
+      })) || [],
+    [quotation],
+  );
 
   /* =======================================================
      FORM STATE
   ======================================================= */
 
-  const [clientId, setClientId] = useState<string>(quotationClientId);
+  const [clientId, setClientId] = useState<string>("");
 
   const [invoiceDate, setInvoiceDate] = useState<string>(today());
 
@@ -129,47 +218,61 @@ export default function AddInvoice() {
 
   const [status, setStatus] = useState<InvoiceStatus>("Draft");
 
-  const [items, setItems] = useState<InvoiceItem[]>(
-    quotationItems.length > 0 ? quotationItems : [emptyItem()],
-  );
+  const [items, setItems] = useState<InvoiceItem[]>([emptyItem()]);
 
   const [tax, setTax] = useState<number>(
-    quotation
-      ? Number(quotation.tax) || 18
-      : Number(invoiceSettings.defaultGst) || 18,
+    Number(invoiceSettings.defaultGst) || 18,
   );
+
+  /* =======================================================
+     APPLY QUOTATION PREFILL
+  ======================================================= */
+
+  useEffect(() => {
+    if (!quotation) {
+      return;
+    }
+
+    setClientId(quotationClientId);
+
+    setItems(quotationItems.length > 0 ? quotationItems : [emptyItem()]);
+
+    setTax(Number(quotation.tax) || 18);
+  }, [quotation, quotationClientId, quotationItems]);
 
   /* =======================================================
      LAST INVOICE NOTES PREFILL
   ======================================================= */
 
-  const [notes, setNotes] = useState<string>(() => {
-    try {
-      const invoices = getInvoices();
+  const [notes, setNotes] = useState<string>(invoiceSettings.notes || "");
 
-      if (!invoices.length) {
-        return invoiceSettings.notes || "";
-      }
+  useEffect(() => {
+    let mounted = true;
 
-      const latestInvoice = [...invoices].sort((a, b) => {
-        const dateA = new Date(
-          a.updatedAt || a.createdAt || a.invoiceDate || "",
-        ).getTime();
+    void getInvoices()
+      .then((invoices) => {
+        if (!mounted) return;
 
-        const dateB = new Date(
-          b.updatedAt || b.createdAt || b.invoiceDate || "",
-        ).getTime();
+        const latestInvoice = [...invoices].sort((a, b) => {
+          const dateA = new Date(
+            a.updatedAt || a.createdAt || a.invoiceDate || "",
+          ).getTime();
+          const dateB = new Date(
+            b.updatedAt || b.createdAt || b.invoiceDate || "",
+          ).getTime();
+          return dateB - dateA;
+        })[0];
 
-        return dateB - dateA;
-      })[0];
+        setNotes(latestInvoice?.notes || invoiceSettings.notes || "");
+      })
+      .catch((loadError) => {
+        console.error("Failed to load last invoice notes:", loadError);
+      });
 
-      return latestInvoice?.notes || invoiceSettings.notes || "";
-    } catch (error) {
-      console.error("Failed to load last invoice notes:", error);
-
-      return invoiceSettings.notes || "";
-    }
-  });
+    return () => {
+      mounted = false;
+    };
+  }, [invoiceSettings.notes]);
 
   const [error, setError] = useState<string>("");
 
@@ -210,12 +313,32 @@ export default function AddInvoice() {
    * again during submission.
    */
 
-  const invoiceNumberPreview = useMemo(() => {
+  const [invoiceNumberPreview, setInvoiceNumberPreview] =
+    useState("Auto-generated");
+
+  useEffect(() => {
+    let mounted = true;
+
     if (!clientId || !invoiceDate) {
-      return "Auto-generated";
+      setInvoiceNumberPreview("Auto-generated");
+      return;
     }
 
-    return generateInvoiceNumber(String(clientId), "BDP", invoiceDate);
+    void generateInvoiceNumber(String(clientId), "BDP", invoiceDate)
+      .then((number) => {
+        if (mounted) setInvoiceNumberPreview(number);
+      })
+      .catch((numberError) => {
+        console.error(
+          "Failed to generate invoice number preview:",
+          numberError,
+        );
+        if (mounted) setInvoiceNumberPreview("Auto-generated");
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, [clientId, invoiceDate]);
 
   /* =======================================================
@@ -397,7 +520,7 @@ export default function AddInvoice() {
      SUBMIT
   ======================================================= */
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setError("");
@@ -427,7 +550,7 @@ export default function AddInvoice() {
        * the same quotation cannot accidentally generate
        * another invoice.
        */
-      const existingQuotationInvoice = getInvoiceByQuotationReference(
+      const existingQuotationInvoice = await getInvoiceByQuotationReference(
         quotation.id,
         quotation.quotationNumber,
       );
@@ -534,7 +657,7 @@ export default function AddInvoice() {
      */
 
     try {
-      const invoice = createInvoice({
+      const invoice = await createInvoice({
         clientId: String(clientId),
 
         clientName,
@@ -584,7 +707,7 @@ export default function AddInvoice() {
        * UI check above and the actual save.
        */
       if (quotation) {
-        const existingQuotationInvoice = getInvoiceByQuotationReference(
+        const existingQuotationInvoice = await getInvoiceByQuotationReference(
           quotation.id,
           quotation.quotationNumber,
         );
@@ -603,6 +726,21 @@ export default function AddInvoice() {
 
       setError(message);
     }
+  }
+
+  /* =======================================================
+     QUOTATION LOADING
+  ======================================================= */
+
+  if (quotationId && quotationLoading) {
+    return (
+      <div className="flex min-h-[320px] items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-gray-200 border-t-green-600" />
+          <p className="text-sm text-gray-500">Loading quotation...</p>
+        </div>
+      </div>
+    );
   }
 
   /* =======================================================

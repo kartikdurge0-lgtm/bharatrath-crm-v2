@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { archiveClient, getClientById, type Client } from "../data/clientStore";
+import {
+  archiveClient,
+  getClientByIdFromSupabase,
+  type Client,
+} from "../data/clientStore";
 
 export default function ClientDetails() {
   const navigate = useNavigate();
@@ -9,20 +13,85 @@ export default function ClientDetails() {
 
   const [client, setClient] = useState<Client | null>(null);
   const [showMore, setShowMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [archiving, setArchiving] = useState(false);
+  const [error, setError] = useState("");
 
   /* =================================================
      LOAD CLIENT
   ================================================= */
 
-  useEffect(() => {
-    if (!clientId) return;
+  const loadClient = useCallback(async () => {
+    if (!clientId) {
+      setClient(null);
+      setLoading(false);
+      return;
+    }
 
-    const existingClient = getClientById(clientId);
+    setLoading(true);
+    setError("");
 
-    if (existingClient) {
-      setClient(existingClient);
+    try {
+      const existingClient = await getClientByIdFromSupabase(clientId);
+
+      if (existingClient) {
+        setClient(existingClient);
+      } else {
+        setClient(null);
+      }
+    } catch (loadError) {
+      console.error("Failed to load client:", loadError);
+
+      setClient(null);
+      setError("Unable to load client details.");
+    } finally {
+      setLoading(false);
     }
   }, [clientId]);
+
+  useEffect(() => {
+    loadClient();
+  }, [loadClient]);
+
+  /* =================================================
+     REFRESH WHEN PAGE BECOMES VISIBLE
+  ================================================= */
+
+  useEffect(() => {
+    const handleFocus = () => {
+      loadClient();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        loadClient();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [loadClient]);
+
+  /* =================================================
+     LOADING STATE
+  ================================================= */
+
+  if (loading) {
+    return (
+      <div className="mx-auto w-full max-w-[1800px] min-w-0">
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-12 text-center shadow-sm sm:px-6">
+          <p className="text-sm text-slate-500">Loading client details...</p>
+        </div>
+      </div>
+    );
+  }
 
   /* =================================================
      CLIENT NOT FOUND
@@ -36,9 +105,13 @@ export default function ClientDetails() {
             Client Not Found
           </h2>
 
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 break-words text-sm text-slate-500">
             The requested client could not be found.
           </p>
+
+          {error ? (
+            <p className="mt-2 break-words text-sm text-red-600">{error}</p>
+          ) : null}
         </div>
 
         <button
@@ -56,7 +129,11 @@ export default function ClientDetails() {
      ARCHIVE CLIENT
   ================================================= */
 
-  const handleArchive = () => {
+  const handleArchive = async () => {
+    if (archiving) {
+      return;
+    }
+
     const confirmed = window.confirm(
       `Are you sure you want to archive "${client.company}"?`,
     );
@@ -65,22 +142,57 @@ export default function ClientDetails() {
       return;
     }
 
-    /*
-      IMPORTANT:
-      Archive through clientStore so the client gets
-      archived: true inside crm-clients.
-    */
+    setArchiving(true);
+    setError("");
 
-    archiveClient(client.id);
+    try {
+      /*
+       * IMPORTANT:
+       * Archive through clientStore.
+       *
+       * The new clientStore performs the Supabase
+       * update first and then updates the local cache.
+       *
+       * Clients are never permanently deleted.
+       */
+      await archiveClient(client.id);
 
-    setShowMore(false);
+      setShowMore(false);
 
-    /*
-      After successful archive, go back to Clients.
-      The archived client will no longer appear there.
-    */
+      /*
+       * After successful archive, go back to the
+       * active Clients list.
+       */
+      navigate("/clients");
+    } catch (archiveError) {
+      console.error("Failed to archive client:", archiveError);
 
-    navigate("/clients");
+      setError("Client could not be archived. Please try again.");
+
+      setArchiving(false);
+    }
+  };
+
+  /* =================================================
+     STATUS STYLE
+  ================================================= */
+
+  const getStatusClass = (status: string) => {
+    const normalized = status.toLowerCase();
+
+    if (normalized === "active") {
+      return "bg-green-50 text-green-700";
+    }
+
+    if (normalized === "pending") {
+      return "bg-yellow-50 text-yellow-700";
+    }
+
+    if (normalized === "inactive") {
+      return "bg-slate-100 text-slate-600";
+    }
+
+    return "bg-slate-100 text-slate-600";
   };
 
   /* =================================================
@@ -89,6 +201,19 @@ export default function ClientDetails() {
 
   return (
     <div className="mx-auto w-full max-w-[1800px] min-w-0 space-y-4 sm:space-y-5">
+      {/* =================================================
+          ERROR MESSAGE
+      ================================================= */}
+
+      {error ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
+          <p className="break-words">{error}</p>
+        </div>
+      ) : null}
+
       {/* =================================================
           PAGE HEADER
       ================================================= */}
@@ -140,24 +265,26 @@ export default function ClientDetails() {
             <button
               type="button"
               onClick={() => setShowMore((prev) => !prev)}
-              className="flex h-10 w-full items-center justify-center rounded-lg border border-slate-300 bg-white text-xl font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-10"
+              disabled={archiving}
+              className="flex h-10 w-full items-center justify-center rounded-lg border border-slate-300 bg-white text-xl font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-10"
               aria-label="More actions"
               aria-expanded={showMore}
             >
               ⋮
             </button>
 
-            {showMore && (
+            {showMore ? (
               <div className="absolute right-0 top-full z-30 mt-2 w-48 max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
                 <button
                   type="button"
-                  onClick={handleArchive}
-                  className="w-full px-4 py-2.5 text-left text-sm font-medium text-red-600 transition hover:bg-red-50"
+                  onClick={() => void handleArchive()}
+                  disabled={archiving}
+                  className="w-full px-4 py-2.5 text-left text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Archive Client
+                  {archiving ? "Archiving..." : "Archive Client"}
                 </button>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
@@ -201,7 +328,9 @@ export default function ClientDetails() {
                 Client ID
               </p>
 
-              <p className="mt-1 text-sm text-slate-700">{client.id}</p>
+              <p className="mt-1 break-words text-sm text-slate-700">
+                {client.id}
+              </p>
             </div>
 
             {/* Contact Person */}
@@ -215,7 +344,7 @@ export default function ClientDetails() {
                 className="mt-1 break-words text-sm text-slate-700"
                 title={client.contactPerson}
               >
-                {client.contactPerson}
+                {client.contactPerson || "—"}
               </p>
             </div>
 
@@ -227,7 +356,7 @@ export default function ClientDetails() {
               </p>
 
               <p className="mt-1 break-all text-sm text-slate-700">
-                {client.phone}
+                {client.phone || "—"}
               </p>
             </div>
 
@@ -290,15 +419,11 @@ export default function ClientDetails() {
 
             <div className="mt-3">
               <span
-                className={`inline-flex whitespace-nowrap rounded-full px-3 py-1 text-sm font-medium ${
-                  client.status === "Active"
-                    ? "bg-green-50 text-green-700"
-                    : client.status === "Pending"
-                      ? "bg-yellow-50 text-yellow-700"
-                      : "bg-slate-100 text-slate-600"
-                }`}
+                className={`inline-flex whitespace-nowrap rounded-full px-3 py-1 text-sm font-medium ${getStatusClass(
+                  client.status,
+                )}`}
               >
-                {client.status}
+                {client.status || "Unknown"}
               </span>
             </div>
 
@@ -312,10 +437,18 @@ export default function ClientDetails() {
                   className="break-words rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-700"
                   title={client.services}
                 >
-                  {client.services}
+                  {client.services || "—"}
                 </div>
               </div>
             </div>
+
+            {client.archived ? (
+              <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                <p className="text-xs font-medium text-amber-800">
+                  This client is archived.
+                </p>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -343,7 +476,7 @@ export default function ClientDetails() {
                   className="break-words text-sm font-medium text-slate-900"
                   title={client.services}
                 >
-                  {client.services}
+                  {client.services || "No service assigned"}
                 </p>
 
                 <p className="mt-1 text-xs text-slate-500">Active service</p>
@@ -385,7 +518,7 @@ export default function ClientDetails() {
                 className="mt-1 break-words text-xs text-slate-500"
                 title={client.services}
               >
-                {client.services}
+                {client.services || "No service assigned"}
               </p>
             </div>
 
@@ -394,8 +527,8 @@ export default function ClientDetails() {
                 Client status
               </p>
 
-              <p className="mt-1 text-xs text-slate-500">
-                Currently {client.status}
+              <p className="mt-1 break-words text-xs text-slate-500">
+                Currently {client.status || "Unknown"}
               </p>
             </div>
           </div>

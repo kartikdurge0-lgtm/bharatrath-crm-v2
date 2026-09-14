@@ -243,15 +243,21 @@ export default function Payments() {
      LOAD
   ======================================================= */
 
-  const loadInvoices = () => {
-    setInvoices(getInvoicesSorted());
+  const loadInvoices = async () => {
+    try {
+      const data = await getInvoicesSorted();
+      setInvoices(data);
+    } catch (error) {
+      console.error("Failed to load invoices:", error);
+      setInvoices([]);
+    }
   };
 
   useEffect(() => {
-    loadInvoices();
+    void loadInvoices();
 
     const handleFocus = () => {
-      loadInvoices();
+      void loadInvoices();
     };
 
     window.addEventListener("focus", handleFocus);
@@ -421,7 +427,10 @@ export default function Payments() {
      CANCEL PAYMENT
   ======================================================= */
 
-  const handleCancelPayment = (invoice: Invoice, payment: InvoicePayment) => {
+  const handleCancelPayment = async (
+    invoice: Invoice,
+    payment: InvoicePayment,
+  ) => {
     const reason = window.prompt("Enter reason for cancelling this payment:");
 
     if (reason === null) return;
@@ -441,14 +450,18 @@ export default function Payments() {
 
     if (!confirmed) return;
 
-    const result = cancelInvoicePayment(invoice.id, payment.id, trimmedReason);
+    const result = await cancelInvoicePayment(
+      invoice.id,
+      payment.id,
+      trimmedReason,
+    );
 
     if (!result) {
       window.alert("Unable to cancel the payment.");
       return;
     }
 
-    loadInvoices();
+    void loadInvoices();
   };
 
   /* =======================================================

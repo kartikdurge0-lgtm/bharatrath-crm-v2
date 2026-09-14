@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
   cancelInvoicePayment,
   getInvoice,
   getInvoicePaymentSummary,
+  type Invoice,
 } from "../data/invoiceStore";
 
-import { getClientById } from "../data/clientStore";
+import { getClientByIdFromSupabase } from "../data/clientStore";
 import { getQuotation } from "../data/quotationStore";
 
 import AddPaymentModal from "../components/AddPaymentModal";
@@ -95,7 +96,134 @@ export default function InvoiceDetails() {
 
   const [receiptPaymentId, setReceiptPaymentId] = useState<string | null>(null);
 
-  const invoice = invoiceId ? getInvoice(invoiceId) : null;
+  const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadInvoice() {
+      if (!invoiceId) {
+        if (mounted) {
+          setInvoice(null);
+          setLoading(false);
+        }
+        return;
+      }
+
+      setLoading(true);
+      setLoadError("");
+
+      try {
+        const data = await getInvoice(invoiceId);
+
+        if (!mounted) return;
+
+        setInvoice(data || null);
+      } catch (error) {
+        console.error("Failed to load invoice:", error);
+        if (mounted) {
+          setInvoice(null);
+          setLoadError(
+            error instanceof Error ? error.message : "Failed to load invoice.",
+          );
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    void loadInvoice();
+
+    return () => {
+      mounted = false;
+    };
+  }, [invoiceId, refreshKey]);
+
+  /* =======================================================
+     QUOTATION
+  ======================================================= */
+
+  const [quotation, setQuotation] =
+    useState<Awaited<ReturnType<typeof getQuotation>>>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadQuotation() {
+      if (!invoice?.quotationId) {
+        if (mounted) {
+          setQuotation(null);
+        }
+        return;
+      }
+
+      try {
+        const data = await getQuotation(invoice.quotationId);
+
+        if (mounted) {
+          setQuotation(data);
+        }
+      } catch (error) {
+        console.error("Failed to load related quotation:", error);
+
+        if (mounted) {
+          setQuotation(null);
+        }
+      }
+    }
+
+    loadQuotation();
+
+    return () => {
+      mounted = false;
+    };
+  }, [invoice?.quotationId]);
+
+  /* =======================================================
+     CLIENT
+  ======================================================= */
+
+  const [client, setClient] =
+    useState<Awaited<ReturnType<typeof getClientByIdFromSupabase>>>(undefined);
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (!invoice?.clientId) {
+      setClient(undefined);
+      return;
+    }
+
+    void getClientByIdFromSupabase(invoice.clientId)
+      .then((data) => {
+        if (mounted) setClient(data || undefined);
+      })
+      .catch((error) => {
+        console.error("Failed to load client:", error);
+        if (mounted) setClient(undefined);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [invoice?.clientId]);
+
+  /* =======================================================
+     LOADING
+  ======================================================= */
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[320px] items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-gray-200 border-t-green-600" />
+          <p className="text-sm text-gray-500">Loading invoice...</p>
+        </div>
+      </div>
+    );
+  }
 
   /* =======================================================
      NOT FOUND
@@ -110,7 +238,7 @@ export default function InvoiceDetails() {
           </h2>
 
           <p className="mt-1 text-sm text-gray-500">
-            The requested invoice could not be found.
+            {loadError || "The requested invoice could not be found."}
           </p>
         </div>
 
@@ -124,20 +252,6 @@ export default function InvoiceDetails() {
       </div>
     );
   }
-
-  /* =======================================================
-     CLIENT
-  ======================================================= */
-
-  const client = invoice.clientId ? getClientById(invoice.clientId) : undefined;
-
-  /* =======================================================
-     QUOTATION
-  ======================================================= */
-
-  const quotation = invoice.quotationId
-    ? getQuotation(invoice.quotationId)
-    : null;
 
   /* =======================================================
      PAYMENT
@@ -230,7 +344,7 @@ export default function InvoiceDetails() {
      CONFIRM CANCEL PAYMENT
   ======================================================= */
 
-  function handleCancelPayment() {
+  async function handleCancelPayment() {
     if (!paymentToCancel) {
       return;
     }
@@ -248,7 +362,11 @@ export default function InvoiceDetails() {
         return;
       }
 
-      const result = cancelInvoicePayment(invoiceId, paymentToCancel, reason);
+      const result = await cancelInvoicePayment(
+        invoiceId,
+        paymentToCancel,
+        reason,
+      );
 
       if (!result) {
         setCancelError("Payment could not be cancelled.");

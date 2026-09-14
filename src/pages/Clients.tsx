@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { getClients, type Client } from "../data/clientStore";
+import { getActiveClientsFromSupabase, type Client } from "../data/clientStore";
 import Pagination from "../components/Pagination";
 
 const PAGE_SIZE = 6;
@@ -9,6 +9,7 @@ const PAGE_SIZE = 6;
 /* =================================================
    CLIENT ID SORT
    Latest Client ID first
+
    Example:
    CL-008
    CL-007
@@ -17,7 +18,7 @@ const PAGE_SIZE = 6;
 ================================================= */
 
 function getClientSequence(id: string): number {
-  const match = id.match(/(\d+)$/);
+  const match = String(id || "").match(/(\d+)$/);
 
   if (!match) {
     return 0;
@@ -38,19 +39,56 @@ export default function Clients() {
 
   /* =================================================
      LOAD CLIENTS
+
+     Important:
+     clientStore currently provides a synchronous
+     compatibility API.
+
+     No automatic Supabase sync is triggered here.
   ================================================= */
 
-  const loadClients = () => {
-    const allClients = getClients();
-
-    const activeClients = allClients.filter((client) => !client.archived);
-
-    setClients(activeClients);
-  };
+  const loadClients = useCallback(async () => {
+    try {
+      const activeClients = await getActiveClientsFromSupabase();
+      setClients(activeClients);
+    } catch (error) {
+      console.error("Failed to load clients:", error);
+      setClients([]);
+    }
+  }, []);
 
   useEffect(() => {
-    loadClients();
-  }, []);
+    void loadClients();
+  }, [loadClients]);
+
+  /* =================================================
+     REFRESH WHEN PAGE BECOMES VISIBLE
+
+     Useful when a client is added/edited in another
+     CRM page and the user comes back here.
+  ================================================= */
+
+  useEffect(() => {
+    const handleFocus = () => {
+      void loadClients();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void loadClients();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [loadClients]);
 
   /* =================================================
      FILTER + SORT
@@ -58,28 +96,40 @@ export default function Clients() {
      Order:
      1. Active clients
      2. Search / Status filter
-     3. Latest client first
+     3. Latest Client ID first
      4. Pagination
   ================================================= */
 
   const filteredClients = useMemo(() => {
-    const searchText = search.toLowerCase().trim();
+    const searchText = search.trim().toLowerCase();
 
     return clients
       .filter((client) => {
         const company = client.company?.toLowerCase() || "";
+
         const contactPerson = client.contactPerson?.toLowerCase() || "";
+
         const phone = client.phone?.toLowerCase() || "";
+
+        const email = client.email?.toLowerCase() || "";
+
         const id = client.id?.toLowerCase() || "";
+
         const services = client.services?.toLowerCase() || "";
+
+        const gst = client.gst?.toLowerCase() || "";
+
         const status = client.status?.toLowerCase() || "";
 
         const matchesSearch =
+          searchText === "" ||
           company.includes(searchText) ||
           contactPerson.includes(searchText) ||
           phone.includes(searchText) ||
+          email.includes(searchText) ||
           id.includes(searchText) ||
-          services.includes(searchText);
+          services.includes(searchText) ||
+          gst.includes(searchText);
 
         const matchesStatus =
           statusFilter === "all" || status === statusFilter.toLowerCase();
@@ -90,10 +140,23 @@ export default function Clients() {
         /*
          * Latest Client ID first.
          *
-         * CL-008 → CL-007 → CL-006 ...
+         * CL-008 → CL-007 → CL-006
          */
 
-        return getClientSequence(b.id) - getClientSequence(a.id);
+        const sequenceDifference =
+          getClientSequence(b.id) - getClientSequence(a.id);
+
+        if (sequenceDifference !== 0) {
+          return sequenceDifference;
+        }
+
+        /*
+         * Stable secondary sorting.
+         */
+        return b.id.localeCompare(a.id, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
       });
   }, [clients, search, statusFilter]);
 
@@ -128,6 +191,28 @@ export default function Clients() {
   }, [filteredClients, currentPage]);
 
   /* =================================================
+     STATUS STYLE
+  ================================================= */
+
+  const getStatusClass = (status: string) => {
+    const normalized = status.toLowerCase();
+
+    if (normalized === "active") {
+      return "bg-green-50 text-green-700";
+    }
+
+    if (normalized === "pending") {
+      return "bg-yellow-50 text-yellow-700";
+    }
+
+    if (normalized === "inactive") {
+      return "bg-slate-100 text-slate-600";
+    }
+
+    return "bg-slate-100 text-slate-600";
+  };
+
+  /* =================================================
      RENDER
   ================================================= */
 
@@ -160,7 +245,7 @@ export default function Clients() {
             onClick={() => navigate("/archived-clients")}
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 sm:px-4"
           >
-            <span>📁</span>
+            <span aria-hidden="true">📁</span>
 
             <span>Archived Clients</span>
           </button>
@@ -194,8 +279,9 @@ export default function Clients() {
               id="client-search"
               type="text"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(event) => setSearch(event.target.value)}
               placeholder="Search clients..."
+              autoComplete="off"
               className="h-10 w-full min-w-0 rounded-lg border border-slate-300 px-3.5 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-100 sm:h-11 sm:px-4"
             />
           </div>
@@ -210,7 +296,7 @@ export default function Clients() {
             <select
               id="client-status-filter"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(event) => setStatusFilter(event.target.value)}
               className="h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3.5 text-sm text-slate-700 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100 sm:h-11 sm:px-4"
             >
               <option value="all">All Status</option>
@@ -223,6 +309,33 @@ export default function Clients() {
             </select>
           </div>
         </div>
+      </div>
+
+      {/* =================================================
+          RESULTS SUMMARY
+      ================================================= */}
+
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <p className="min-w-0 truncate text-xs text-slate-500 sm:text-sm">
+          Showing{" "}
+          <span className="font-medium text-slate-700">
+            {filteredClients.length}
+          </span>{" "}
+          {filteredClients.length === 1 ? "client" : "clients"}
+        </p>
+
+        {search || statusFilter !== "all" ? (
+          <button
+            type="button"
+            onClick={() => {
+              setSearch("");
+              setStatusFilter("all");
+            }}
+            className="shrink-0 text-xs font-medium text-slate-600 underline underline-offset-2 hover:text-slate-900 sm:text-sm"
+          >
+            Clear filters
+          </button>
+        ) : null}
       </div>
 
       {/* =================================================
@@ -321,7 +434,7 @@ export default function Clients() {
                           className="truncate text-sm text-slate-700"
                           title={client.services}
                         >
-                          {client.services}
+                          {client.services || "—"}
                         </p>
                       </td>
 
@@ -329,15 +442,11 @@ export default function Clients() {
 
                       <td className="px-4 py-3.5 sm:px-5 sm:py-4">
                         <span
-                          className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${
-                            client.status === "Active"
-                              ? "bg-green-50 text-green-700"
-                              : client.status === "Pending"
-                                ? "bg-yellow-50 text-yellow-700"
-                                : "bg-slate-100 text-slate-600"
-                          }`}
+                          className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${getStatusClass(
+                            client.status,
+                          )}`}
                         >
-                          {client.status}
+                          {client.status || "Unknown"}
                         </span>
                       </td>
 
@@ -376,14 +485,33 @@ export default function Clients() {
              NO RESULTS
           ================================================= */
 
-          <div className="px-4 py-10 text-center sm:px-5">
-            <p className="text-sm font-medium text-slate-700">
+          <div className="px-4 py-12 text-center sm:px-5">
+            <div
+              className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-xl"
+              aria-hidden="true"
+            >
+              👥
+            </div>
+
+            <p className="mt-4 text-sm font-medium text-slate-700">
               No clients found
             </p>
 
             <p className="mt-1 text-xs text-slate-500 sm:text-sm">
-              Try changing your search or status filter.
+              {search || statusFilter !== "all"
+                ? "Try changing your search or status filter."
+                : "Add your first client to get started."}
             </p>
+
+            {!search && statusFilter === "all" ? (
+              <button
+                type="button"
+                onClick={() => navigate("/add-client")}
+                className="mt-4 inline-flex min-h-9 items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+              >
+                + Add Client
+              </button>
+            ) : null}
           </div>
         )}
       </div>

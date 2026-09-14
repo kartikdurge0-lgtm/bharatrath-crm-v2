@@ -292,7 +292,7 @@ function ReportTable({
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
       <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
+        <table className="min-w-[900px] text-sm">
           <thead className="bg-[#F4F7FA]">
             <tr>
               {headers.map((header) => (
@@ -364,7 +364,33 @@ export default function Reports() {
      LOAD DATA
   ------------------------------------------------------- */
 
-  const invoices = useMemo<Invoice[]>(() => getInvoices(), [refreshKey]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadInvoices() {
+      try {
+        const data = await getInvoices();
+
+        if (mounted) {
+          setInvoices(data);
+        }
+      } catch (error) {
+        console.error("Failed to load invoices:", error);
+
+        if (mounted) {
+          setInvoices([]);
+        }
+      }
+    }
+
+    void loadInvoices();
+
+    return () => {
+      mounted = false;
+    };
+  }, [refreshKey]);
 
   const payments = useMemo<InvoicePayment[]>(
     () =>
@@ -442,7 +468,33 @@ export default function Reports() {
     };
   }, [refreshKey]);
 
-  const quotations = useMemo<Quotation[]>(() => getQuotations(), [refreshKey]);
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadQuotations() {
+      try {
+        const data = await getQuotations();
+
+        if (!mounted) return;
+
+        setQuotations(data);
+      } catch (error) {
+        console.error("Failed to load quotations:", error);
+
+        if (mounted) {
+          setQuotations([]);
+        }
+      }
+    }
+
+    loadQuotations();
+
+    return () => {
+      mounted = false;
+    };
+  }, [refreshKey]);
 
   const renewals = useMemo<Renewal[]>(() => getRenewals(), [refreshKey]);
 
@@ -902,7 +954,11 @@ export default function Reports() {
         };
       })
       .filter((item) => item.balance > 0)
-      .sort((a, b) => b.balance - a.balance)
+      .sort((a, b) =>
+        (b.invoice.invoiceDate || "").localeCompare(
+          a.invoice.invoiceDate || "",
+        ),
+      )
       .map(({ invoice, balance }) => [
         invoice.invoiceNumber,
         invoice.clientName,
@@ -968,7 +1024,7 @@ export default function Reports() {
 
   function renderRenewalReport() {
     const rows = [...filteredRenewals]
-      .sort((a, b) => (a.renewalDate || "").localeCompare(b.renewalDate || ""))
+      .sort((a, b) => (b.renewalDate || "").localeCompare(a.renewalDate || ""))
       .map((renewal) => [
         renewal.id,
         renewal.clientName,
@@ -1240,7 +1296,7 @@ export default function Reports() {
   function renderFollowUpReport() {
     const rows = [...filteredFollowUps]
       .sort((a, b) =>
-        (a.followUpDate || "").localeCompare(b.followUpDate || ""),
+        (b.followUpDate || "").localeCompare(a.followUpDate || ""),
       )
       .map((followUp) => [
         followUp.id,
@@ -1409,20 +1465,58 @@ export default function Reports() {
 
     switch (reportType) {
       case "sales": {
+        const salesByDate = new Map<
+          string,
+          {
+            invoices: number;
+            invoiceValue: number;
+            received: number;
+          }
+        >();
+
+        filteredInvoices.forEach((invoice) => {
+          const date = normalizeDate(invoice.invoiceDate);
+
+          if (!date) return;
+
+          const current = salesByDate.get(date) || {
+            invoices: 0,
+            invoiceValue: 0,
+            received: 0,
+          };
+
+          current.invoices += 1;
+          current.invoiceValue += Number(invoice.grandTotal) || 0;
+          salesByDate.set(date, current);
+        });
+
+        filteredPayments.forEach((payment) => {
+          const date = normalizeDate(payment.paymentDate);
+
+          if (!date) return;
+
+          const current = salesByDate.get(date) || {
+            invoices: 0,
+            invoiceValue: 0,
+            received: 0,
+          };
+
+          current.received += Number(payment.amountPaid) || 0;
+          salesByDate.set(date, current);
+        });
+
         downloadCSV(
           filename,
           ["Date", "Invoices", "Invoice Value", "Received", "Net Outstanding"],
-          filteredInvoices.map((invoice) => {
-            const summary = getInvoicePaymentSummary(invoice);
-
-            return [
-              normalizeDate(invoice.invoiceDate),
-              1,
-              invoice.grandTotal,
-              summary.totalPaid,
-              summary.balance,
-            ];
-          }),
+          [...salesByDate.entries()]
+            .sort((a, b) => b[0].localeCompare(a[0]))
+            .map(([date, data]) => [
+              date,
+              data.invoices,
+              data.invoiceValue,
+              data.received,
+              data.invoiceValue - data.received,
+            ]),
         );
         break;
       }
@@ -1666,6 +1760,65 @@ export default function Reports() {
       }
 
       case "datewise": {
+        const dateMap = new Map<
+          string,
+          {
+            leads: number;
+            quotations: number;
+            invoices: number;
+            invoiceValue: number;
+            received: number;
+            followUps: number;
+          }
+        >();
+
+        const getDateBucket = (date: string) => {
+          const current = dateMap.get(date) || {
+            leads: 0,
+            quotations: 0,
+            invoices: 0,
+            invoiceValue: 0,
+            received: 0,
+            followUps: 0,
+          };
+
+          dateMap.set(date, current);
+          return current;
+        };
+
+        filteredLeads.forEach((lead) => {
+          const date = normalizeDate(lead.createdAt);
+          if (!date) return;
+          getDateBucket(date).leads += 1;
+        });
+
+        filteredQuotations.forEach((quotation) => {
+          const date = normalizeDate(quotation.quotationDate);
+          if (!date) return;
+          getDateBucket(date).quotations += 1;
+        });
+
+        filteredInvoices.forEach((invoice) => {
+          const date = normalizeDate(invoice.invoiceDate);
+          if (!date) return;
+
+          const bucket = getDateBucket(date);
+          bucket.invoices += 1;
+          bucket.invoiceValue += Number(invoice.grandTotal) || 0;
+        });
+
+        filteredPayments.forEach((payment) => {
+          const date = normalizeDate(payment.paymentDate);
+          if (!date) return;
+          getDateBucket(date).received += Number(payment.amountPaid) || 0;
+        });
+
+        filteredFollowUps.forEach((followUp) => {
+          const date = normalizeDate(followUp.followUpDate);
+          if (!date) return;
+          getDateBucket(date).followUps += 1;
+        });
+
         downloadCSV(
           filename,
           [
@@ -1677,27 +1830,17 @@ export default function Reports() {
             "Received",
             "Follow-ups",
           ],
-          filteredInvoices.map((invoice) => [
-            invoice.invoiceDate,
-            filteredLeads.filter(
-              (lead) =>
-                normalizeDate(lead.createdAt) ===
-                normalizeDate(invoice.invoiceDate),
-            ).length,
-            filteredQuotations.filter(
-              (quotation) =>
-                normalizeDate(quotation.quotationDate) ===
-                normalizeDate(invoice.invoiceDate),
-            ).length,
-            1,
-            invoice.grandTotal,
-            0,
-            filteredFollowUps.filter(
-              (followUp) =>
-                normalizeDate(followUp.followUpDate) ===
-                normalizeDate(invoice.invoiceDate),
-            ).length,
-          ]),
+          [...dateMap.entries()]
+            .sort((a, b) => b[0].localeCompare(a[0]))
+            .map(([date, data]) => [
+              date,
+              data.leads,
+              data.quotations,
+              data.invoices,
+              data.invoiceValue,
+              data.received,
+              data.followUps,
+            ]),
         );
         break;
       }
@@ -1845,7 +1988,7 @@ export default function Reports() {
   ========================================================= */
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-[1800px] min-w-0 space-y-6">
       {/* =====================================================
           PAGE HEADER
       ===================================================== */}

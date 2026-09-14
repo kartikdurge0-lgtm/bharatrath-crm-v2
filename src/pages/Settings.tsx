@@ -1,6 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 
-import { getActivityLogs, type ActivityLog } from "../data/activityLogStore";
+import ArchivedRecords from "./ArchivedRecords";
+
+import {
+  getActivityLogs,
+  getActivityUsers,
+  type ActivityLog,
+} from "../data/activityLogStore";
 
 import {
   getActiveSalesPersons,
@@ -20,7 +26,8 @@ type SettingsSection =
   | "notifications"
   | "preferences"
   | "data"
-  | "activity";
+  | "activity"
+  | "archived";
 
 type BusinessSettings = {
   businessName: string;
@@ -465,11 +472,7 @@ export default function Settings() {
   -------------------------------- */
 
   const activityUsers = useMemo(() => {
-    const users = activityLogs
-      .map((log) => log.user_name || log.user_email || "Unknown User")
-      .filter(Boolean);
-
-    return Array.from(new Set(users));
+    return getActivityUsers(activityLogs);
   }, [activityLogs]);
 
   const activityModules = useMemo(
@@ -503,7 +506,8 @@ export default function Settings() {
           (log.record_name || "").toLowerCase().includes(search);
 
         const matchesUser =
-          activityUserFilter === "All Users" || user === activityUserFilter;
+          activityUserFilter === "All Users" ||
+          log.user_id === activityUserFilter;
 
         const matchesModule =
           activityModuleFilter === "All Modules" ||
@@ -650,6 +654,12 @@ export default function Settings() {
       label: "Activity History",
       icon: "🕘",
       description: "Track CRM user activities",
+    },
+    {
+      key: "archived",
+      label: "Archived Records",
+      icon: "🗄️",
+      description: "View and restore archived CRM records",
     },
     {
       key: "data",
@@ -1460,6 +1470,10 @@ export default function Settings() {
             </section>
           )}
 
+          {/* ARCHIVED RECORDS */}
+
+          {activeSection === "archived" && <ArchivedRecords />}
+
           {/* ACTIVITY HISTORY */}
 
           {activeSection === "activity" && (
@@ -1498,8 +1512,9 @@ export default function Settings() {
                   <option>All Users</option>
 
                   {activityUsers.map((user) => (
-                    <option key={user} value={user}>
-                      {user}
+                    <option key={user.id} value={user.id}>
+                      {user.name}
+                      {user.email ? ` — ${user.email}` : ""}
                     </option>
                   ))}
                 </select>

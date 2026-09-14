@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
@@ -6,39 +6,17 @@ import {
   getInvoice,
   getInvoicePaymentSummary,
   updateInvoice,
+  type Invoice,
   type InvoiceItem,
   type InvoiceStatus,
 } from "../data/invoiceStore";
 
 import { getServices } from "../data/serviceStore";
+import { getActiveClientsFromSupabase } from "../data/clientStore";
 
 /* =========================================================
    CLIENT
 ========================================================= */
-
-type Client = {
-  id: string;
-  company?: string;
-  companyName?: string;
-  company_name?: string;
-  name?: string;
-};
-
-function getClients(): Client[] {
-  try {
-    const saved = localStorage.getItem("crm-clients");
-
-    if (!saved) {
-      return [];
-    }
-
-    const parsed: unknown = JSON.parse(saved);
-
-    return Array.isArray(parsed) ? (parsed as Client[]) : [];
-  } catch {
-    return [];
-  }
-}
 
 /* =========================================================
    MAIN
@@ -51,41 +29,142 @@ export default function EditInvoice() {
     invoiceId: string;
   }>();
 
-  const clients = useMemo(() => getClients(), []);
+  const [clients, setClients] = useState<
+    Awaited<ReturnType<typeof getActiveClientsFromSupabase>>
+  >([]);
 
-  const services = useMemo(() => getServices(), []);
+  const [loadedInvoice, setLoadedInvoice] = useState<
+    Invoice | null | undefined
+  >(undefined);
 
-  const invoice = invoiceId ? getInvoice(invoiceId) : undefined;
+  const [loadingInvoice, setLoadingInvoice] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    setLoadingInvoice(true);
+
+    void Promise.all([
+      getActiveClientsFromSupabase(),
+      invoiceId ? getInvoice(invoiceId) : Promise.resolve(undefined),
+    ])
+      .then(([clientData, invoiceData]) => {
+        if (!mounted) return;
+        setClients(clientData);
+        setLoadedInvoice(invoiceData ?? null);
+      })
+      .catch((error) => {
+        console.error("Failed to load invoice:", error);
+        if (mounted) {
+          setClients([]);
+          setLoadedInvoice(null);
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoadingInvoice(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [invoiceId]);
+
+  const [services, setServices] = useState<
+    Awaited<ReturnType<typeof getServices>>
+  >([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadServices = async () => {
+      try {
+        const loadedServices = await getServices();
+
+        if (mounted) {
+          setServices(loadedServices);
+        }
+      } catch (error) {
+        console.error("Failed to load services:", error);
+      }
+    };
+
+    void loadServices();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const invoice = loadedInvoice;
 
   /* =======================================================
      STATE
   ======================================================= */
 
-  const [clientId, setClientId] = useState(invoice?.clientId || "");
+  const [clientId, setClientId] = useState("");
 
-  const [invoiceDate, setInvoiceDate] = useState(invoice?.invoiceDate || "");
+  const [invoiceDate, setInvoiceDate] = useState("");
 
-  const [dueDate, setDueDate] = useState(invoice?.dueDate || "");
+  const [dueDate, setDueDate] = useState("");
 
-  const [status, setStatus] = useState<InvoiceStatus>(
-    invoice?.status || "Draft",
-  );
+  const [status, setStatus] = useState<InvoiceStatus>("Draft");
 
-  const [items, setItems] = useState<InvoiceItem[]>(invoice?.items || []);
+  const [items, setItems] = useState<InvoiceItem[]>([]);
 
-  const [tax] = useState(Number(invoice?.tax) || 18);
+  const [tax, setTax] = useState(18);
 
-  const [notes, setNotes] = useState(invoice?.notes || "");
+  const [notes, setNotes] = useState("");
 
   const [error, setError] = useState("");
+
+  /*
+   * The invoice is loaded asynchronously from Supabase.
+   * Form state must therefore be populated AFTER the invoice
+   * arrives. Initializing useState from invoice?.field would
+   * leave the form empty because the first render happens
+   * before the async request completes.
+   */
+  useEffect(() => {
+    if (!invoice) return;
+
+    setClientId(invoice.clientId || "");
+    setInvoiceDate(invoice.invoiceDate || "");
+    setDueDate(invoice.dueDate || "");
+    setStatus(invoice.status || "Draft");
+    setItems(invoice.items || []);
+    setTax(Number(invoice.tax) || 18);
+    setNotes(invoice.notes || "");
+  }, [invoice]);
 
   /* =======================================================
      NOT FOUND
   ======================================================= */
 
+  if (loadingInvoice) {
+    return (
+      <div className="mx-auto w-full max-w-[1800px] min-w-0 space-y-5 pb-8">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Edit Invoice</h2>
+
+          <p className="mt-1 text-sm text-gray-500">
+            Loading invoice details...
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="h-5 w-48 animate-pulse rounded bg-gray-200" />
+          <div className="mt-4 h-10 w-full animate-pulse rounded bg-gray-100" />
+          <div className="mt-4 h-10 w-full animate-pulse rounded bg-gray-100" />
+        </div>
+      </div>
+    );
+  }
+
   if (!invoice) {
     return (
-      <div className="space-y-5">
+      <div className="mx-auto w-full max-w-[1800px] min-w-0 space-y-5 pb-8">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">
             Invoice Not Found
@@ -150,13 +229,7 @@ export default function EditInvoice() {
     (client) => String(client.id) === String(clientId),
   );
 
-  const clientName =
-    selectedClient?.company ||
-    selectedClient?.companyName ||
-    selectedClient?.company_name ||
-    selectedClient?.name ||
-    invoice.clientName ||
-    "";
+  const clientName = selectedClient?.company || invoice.clientName || "";
 
   /* =======================================================
      SERVICE
@@ -338,7 +411,7 @@ export default function EditInvoice() {
      SAVE
   ======================================================= */
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setError("");
@@ -380,7 +453,7 @@ export default function EditInvoice() {
 
     const finalStatus: InvoiceStatus = isStatusLocked ? invoice.status : status;
 
-    updateInvoice(invoice.id, {
+    await updateInvoice(invoice.id, {
       clientId: String(clientId),
 
       clientName,
@@ -416,12 +489,14 @@ export default function EditInvoice() {
   ======================================================= */
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-[1800px] min-w-0 space-y-6 pb-8">
       {/* HEADER */}
 
-      <div className="flex items-center justify-between">
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Edit Invoice</h2>
+          <h2 className="break-words text-2xl font-bold text-gray-900">
+            Edit Invoice
+          </h2>
 
           <p className="mt-1 text-sm text-gray-500">
             Invoice No: {invoice.invoiceNumber}
@@ -431,7 +506,7 @@ export default function EditInvoice() {
         <button
           type="button"
           onClick={() => navigate(`/invoices/${invoice.id}`)}
-          className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 sm:w-auto"
         >
           ← Back
         </button>
@@ -474,11 +549,7 @@ export default function EditInvoice() {
 
                 {clients.map((client) => (
                   <option key={client.id} value={client.id}>
-                    {client.company ||
-                      client.companyName ||
-                      client.company_name ||
-                      client.name ||
-                      client.id}
+                    {client.company || client.id}
                   </option>
                 ))}
               </select>
@@ -589,7 +660,7 @@ export default function EditInvoice() {
         ================================================= */}
 
         {paymentSummary.totalPaid > 0 && (
-          <div className="rounded-xl border border-green-200 bg-green-50 p-5">
+          <div className="min-w-0 rounded-xl border border-green-200 bg-green-50 p-5">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
                 <p className="text-xs text-gray-500">Invoice Total</p>
@@ -841,18 +912,18 @@ export default function EditInvoice() {
 
         {/* ACTION */}
 
-        <div className="flex justify-end gap-3 pb-10">
+        <div className="flex flex-col-reverse gap-3 pb-10 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={() => navigate(`/invoices/${invoice.id}`)}
-            className="rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700"
+            className="w-full rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 sm:w-auto"
           >
             Cancel
           </button>
 
           <button
             type="submit"
-            className="rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+            className="w-full rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
           >
             Save Changes
           </button>

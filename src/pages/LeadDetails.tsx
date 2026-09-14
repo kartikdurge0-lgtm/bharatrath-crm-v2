@@ -113,6 +113,42 @@ export default function LeadDetails() {
   }, []);
 
   /* =======================================================
+     SERVICES
+  ======================================================= */
+
+  const [services, setServices] = useState<
+    Awaited<ReturnType<typeof getServices>>
+  >([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadServices() {
+      try {
+        const data = await getServices();
+
+        if (!mounted) {
+          return;
+        }
+
+        setServices(data);
+      } catch (error) {
+        console.error("Failed to load services:", error);
+
+        if (mounted) {
+          setServices([]);
+        }
+      }
+    }
+
+    void loadServices();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  /* =======================================================
      FOLLOW-UPS
   ======================================================= */
 
@@ -208,8 +244,6 @@ export default function LeadDetails() {
   const salesPerson = salesPersons.find(
     (person) => person.id === lead.assignedTo,
   );
-
-  const services = getServices();
 
   const service = services.find((item) => item.id === lead.interestedService);
 
@@ -360,7 +394,7 @@ export default function LeadDetails() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-[1800px] min-w-0 space-y-4 pb-8 sm:space-y-6">
       {/* =================================================
           HEADER
       ================================================= */}

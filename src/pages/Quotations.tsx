@@ -148,9 +148,9 @@ export default function Quotations() {
      QUOTATIONS STATE
   ======================================================= */
 
-  const [quotations, setQuotations] = useState<Quotation[]>(() =>
-    getQuotations().filter(isActiveQuotation),
-  );
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
+
+  const [loading, setLoading] = useState(true);
 
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -166,10 +166,17 @@ export default function Quotations() {
      Only active quotations are loaded into this page.
   ======================================================= */
 
-  function refresh() {
-    const activeQuotations = getQuotations().filter(isActiveQuotation);
-
-    setQuotations(activeQuotations);
+  async function refresh() {
+    try {
+      setLoading(true);
+      const allQuotations = await getQuotations();
+      setQuotations(allQuotations.filter(isActiveQuotation));
+    } catch (error) {
+      console.error("Failed to load quotations:", error);
+      setQuotations([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   /* =======================================================
@@ -177,7 +184,7 @@ export default function Quotations() {
   ======================================================= */
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, []);
 
   /* =======================================================
@@ -195,7 +202,7 @@ export default function Quotations() {
      deletion.
   ======================================================= */
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     const quotation = quotations.find((item) => String(item.id) === String(id));
 
     if (!quotation) {
@@ -210,7 +217,7 @@ export default function Quotations() {
       return;
     }
 
-    const archived = deleteQuotation(id);
+    const archived = await deleteQuotation(id);
 
     if (!archived) {
       window.alert("Quotation could not be archived. Please try again.");
@@ -352,6 +359,16 @@ export default function Quotations() {
   /* =======================================================
      RENDER
   ======================================================= */
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-7xl">
+        <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+          <p className="text-sm text-slate-500">Loading quotations...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-7xl">

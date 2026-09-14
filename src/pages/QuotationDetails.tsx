@@ -62,7 +62,7 @@ export default function QuotationDetails() {
       }
     }
 
-    void loadQuotation();
+    loadQuotation();
 
     return () => {
       mounted = false;
@@ -70,17 +70,39 @@ export default function QuotationDetails() {
   }, [quotationId]);
 
   useEffect(() => {
-    if (!quotation) {
-      setExistingInvoice(undefined);
-      return;
+    let mounted = true;
+
+    async function loadExistingInvoice() {
+      if (!quotation) {
+        if (mounted) {
+          setExistingInvoice(undefined);
+        }
+        return;
+      }
+
+      try {
+        const invoice = await getInvoiceByQuotationReference(
+          quotation.id,
+          quotation.quotationNumber,
+        );
+
+        if (mounted) {
+          setExistingInvoice(invoice);
+        }
+      } catch (error) {
+        console.error("Failed to load existing invoice:", error);
+
+        if (mounted) {
+          setExistingInvoice(undefined);
+        }
+      }
     }
 
-    const invoice = getInvoiceByQuotationReference(
-      quotation.id,
-      quotation.quotationNumber,
-    );
+    void loadExistingInvoice();
 
-    setExistingInvoice(invoice);
+    return () => {
+      mounted = false;
+    };
   }, [quotation]);
 
   useEffect(() => {
@@ -116,7 +138,7 @@ export default function QuotationDetails() {
       }
     }
 
-    void loadLead();
+    loadLead();
 
     return () => {
       mounted = false;
@@ -206,13 +228,19 @@ export default function QuotationDetails() {
   function handleInvoiceAction() {
     if (!quotation) return;
 
-    // Existing invoice -> open it instead of creating another invoice.
+    /*
+     * If an invoice already exists for this quotation,
+     * open that invoice instead of creating another one.
+     */
     if (existingInvoice) {
       navigate(`/invoices/${existingInvoice.id}`);
       return;
     }
 
-    // Only Accepted quotations can create an invoice.
+    /*
+     * Only Accepted quotations can be converted to invoices.
+     * AddInvoice.tsx also performs the same protection.
+     */
     if (quotation.status !== "Accepted") {
       return;
     }
@@ -222,10 +250,10 @@ export default function QuotationDetails() {
 
   if (loadingQuotation) {
     return (
-      <div className="mx-auto w-full max-w-[1800px] space-y-5 sm:space-y-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-xl font-bold text-gray-900 sm:text-2xl">
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">
               Quotation Details
             </h1>
 
@@ -237,13 +265,13 @@ export default function QuotationDetails() {
           <button
             type="button"
             onClick={() => navigate("/quotations")}
-            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 sm:w-auto"
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             ← Back to Quotations
           </button>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white p-8 text-center shadow-sm sm:p-10">
+        <div className="rounded-xl border border-gray-200 bg-white p-10 text-center shadow-sm">
           <p className="text-sm text-gray-500">Loading...</p>
         </div>
       </div>
@@ -252,10 +280,10 @@ export default function QuotationDetails() {
 
   if (!quotation) {
     return (
-      <div className="mx-auto w-full max-w-[1800px] space-y-5 sm:space-y-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-xl font-bold text-gray-900 sm:text-2xl">
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">
               Quotation Details
             </h1>
 
@@ -265,14 +293,14 @@ export default function QuotationDetails() {
           <button
             type="button"
             onClick={() => navigate("/quotations")}
-            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 sm:w-auto"
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             ← Back to Quotations
           </button>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white p-8 text-center shadow-sm sm:p-10">
-          <h2 className="text-lg font-semibold text-gray-900 sm:text-xl">
+        <div className="rounded-xl border border-gray-200 bg-white p-10 text-center shadow-sm">
+          <h2 className="text-xl font-semibold text-gray-900">
             Quotation Not Found
           </h2>
 
@@ -293,27 +321,27 @@ export default function QuotationDetails() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] space-y-5 sm:space-y-6">
+    <div className="space-y-6">
       {/* =====================================================
           CRM HEADER
       ===================================================== */}
 
-      <div className="flex flex-col gap-4 print:hidden lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold text-gray-900 sm:text-2xl">
+      <div className="flex flex-col gap-4 print:hidden sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
             Quotation Details
           </h1>
 
-          <p className="mt-1 truncate text-sm text-gray-500">
+          <p className="mt-1 text-sm text-gray-500">
             {quotation.quotationNumber}
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => navigate("/quotations")}
-            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 sm:w-auto"
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             ← Back
           </button>
@@ -321,7 +349,7 @@ export default function QuotationDetails() {
           <button
             type="button"
             onClick={() => navigate(`/quotations/${quotation.id}/edit`)}
-            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 sm:w-auto"
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             Edit
           </button>
@@ -329,7 +357,7 @@ export default function QuotationDetails() {
           <button
             type="button"
             onClick={() => window.print()}
-            className="w-full rounded-lg bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
+            className="rounded-lg bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
           >
             Print
           </button>
@@ -340,32 +368,22 @@ export default function QuotationDetails() {
           CRM CONTEXT
       ===================================================== */}
 
-      <div className="grid min-w-0 grid-cols-1 gap-4 print:hidden md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 print:hidden md:grid-cols-3">
         {/* CLIENT */}
 
-        <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
             Client
           </p>
 
-          <p
-            className="mt-2 truncate text-base font-semibold text-gray-900"
-            title={quotation.clientName}
-          >
+          <p className="mt-2 text-base font-semibold text-gray-900">
             {quotation.clientName}
           </p>
 
-          <p className="mt-1 truncate text-xs text-gray-500">
-            {quotation.clientId}
-          </p>
+          <p className="mt-1 text-xs text-gray-500">{quotation.clientId}</p>
 
           {client?.contactPerson && (
-            <p
-              className="mt-2 truncate text-sm text-gray-600"
-              title={client.contactPerson}
-            >
-              {client.contactPerson}
-            </p>
+            <p className="mt-2 text-sm text-gray-600">{client.contactPerson}</p>
           )}
 
           <button
@@ -379,7 +397,7 @@ export default function QuotationDetails() {
 
         {/* LEAD */}
 
-        <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
             Related Lead
           </p>
@@ -388,16 +406,13 @@ export default function QuotationDetails() {
             <p className="mt-2 text-sm text-gray-500">Loading lead...</p>
           ) : lead ? (
             <>
-              <p
-                className="mt-2 truncate text-base font-semibold text-gray-900"
-                title={lead.companyName}
-              >
+              <p className="mt-2 text-base font-semibold text-gray-900">
                 {lead.companyName}
               </p>
 
-              <p className="mt-1 truncate text-xs text-gray-500">{lead.id}</p>
+              <p className="mt-1 text-xs text-gray-500">{lead.id}</p>
 
-              <p className="mt-2 truncate text-sm text-gray-600">
+              <p className="mt-2 text-sm text-gray-600">
                 Status: {lead.status}
               </p>
 
@@ -418,20 +433,17 @@ export default function QuotationDetails() {
 
         {/* SALES PERSON */}
 
-        <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
             Sales Person
           </p>
 
-          <p
-            className="mt-2 truncate text-base font-semibold text-gray-900"
-            title={quotation.salesPersonName || "Not assigned"}
-          >
+          <p className="mt-2 text-base font-semibold text-gray-900">
             {quotation.salesPersonName || "Not assigned"}
           </p>
 
           {quotation.salesPersonId && (
-            <p className="mt-1 truncate text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-500">
               {quotation.salesPersonId}
             </p>
           )}
@@ -442,8 +454,8 @@ export default function QuotationDetails() {
           STATUS ACTIONS
       ===================================================== */}
 
-      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm print:hidden sm:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm print:hidden">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
               Current Status
@@ -458,12 +470,12 @@ export default function QuotationDetails() {
             </span>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <div className="flex flex-wrap gap-2">
             {quotation.status === "Draft" && (
               <button
                 type="button"
                 onClick={handleMarkSent}
-                className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 sm:w-auto"
+                className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
               >
                 Mark as Sent
               </button>
@@ -474,7 +486,7 @@ export default function QuotationDetails() {
                 <button
                   type="button"
                   onClick={handleAccept}
-                  className="w-full rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
+                  className="rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
                 >
                   Accept Quotation
                 </button>
@@ -482,7 +494,7 @@ export default function QuotationDetails() {
                 <button
                   type="button"
                   onClick={handleReject}
-                  className="w-full rounded-lg border border-red-300 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 sm:w-auto"
+                  className="rounded-lg border border-red-300 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50"
                 >
                   Reject
                 </button>
@@ -493,7 +505,7 @@ export default function QuotationDetails() {
               <button
                 type="button"
                 onClick={handleInvoiceAction}
-                className={`w-full rounded-lg px-5 py-2.5 text-sm font-semibold text-white sm:w-auto ${
+                className={`rounded-lg px-5 py-2.5 text-sm font-semibold text-white ${
                   existingInvoice
                     ? "bg-blue-600 hover:bg-blue-700"
                     : "bg-green-600 hover:bg-green-700"
@@ -516,7 +528,6 @@ export default function QuotationDetails() {
           mx-auto
           w-full
           max-w-[900px]
-          min-w-0
           bg-white
           shadow-sm
           print:max-w-none
@@ -524,17 +535,17 @@ export default function QuotationDetails() {
         "
       >
         {/* =================================================
-            DOCUMENT HEADER
+            HEADER
         ================================================= */}
 
-        <div className="border border-gray-300 px-4 py-5 sm:px-6 sm:py-6 md:px-8 md:py-7 print:border-0 print:px-0 print:py-0">
-          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between md:gap-8">
-            <div className="min-w-0 flex-1">
+        <div className="border border-gray-300 px-8 py-7 print:border-0 print:px-0 print:py-0">
+          <div className="flex items-start justify-between gap-8">
+            <div className="flex-1">
               <div className="mb-3">
                 <img
                   src="/images/bharatrath-logo.png"
                   alt="Bharatrath"
-                  className="quotation-logo h-auto w-[145px] max-w-full object-contain object-left sm:w-[165px]"
+                  className="quotation-logo h-auto w-[165px] object-contain object-left"
                 />
               </div>
 
@@ -546,18 +557,14 @@ export default function QuotationDetails() {
                 Quotation & Business Services
               </p>
 
-              <div className="mt-4 text-[10px] leading-[1.55] text-gray-600 sm:text-[11px]">
+              <div className="mt-4 text-[11px] leading-[1.55] text-gray-600">
                 <p className="font-semibold text-gray-800">
                   Ashti Ventures Pvt. Ltd. (Bharatrath)
                 </p>
 
-                <p className="break-words">
-                  813/801, 8 th Floor, Tower A, WORLD TRADE CENTER,
-                </p>
+                <p>813/801, 8 th Floor, Tower A, WORLD TRADE CENTER,</p>
 
-                <p className="break-words">
-                  EON Free Zone, Kharadi, Pune, Maharashtra, India
-                </p>
+                <p>EON Free Zone, Kharadi, Pune, Maharashtra, India</p>
 
                 <p className="font-semibold">GST No – 27AAQCA3940C1ZR</p>
 
@@ -567,17 +574,17 @@ export default function QuotationDetails() {
               </div>
             </div>
 
-            <div className="w-full shrink-0 md:w-[280px]">
-              <h1 className="mb-4 text-left text-2xl font-bold uppercase text-gray-900 sm:text-3xl md:text-right">
+            <div className="w-[280px] shrink-0">
+              <h1 className="mb-4 text-right text-3xl font-bold uppercase text-gray-900">
                 Quotation
               </h1>
 
-              <table className="w-full text-[11px] sm:text-[12px]">
+              <table className="w-full text-[12px]">
                 <tbody>
                   <tr>
                     <td className="py-1 text-gray-500">Quotation No:</td>
 
-                    <td className="break-words py-1 text-right font-semibold text-gray-900">
+                    <td className="py-1 text-right font-semibold text-gray-900">
                       {quotation.quotationNumber}
                     </td>
                   </tr>
@@ -621,15 +628,12 @@ export default function QuotationDetails() {
             QUOTATION FOR
         ================================================= */}
 
-        <div className="mt-4 rounded-lg border border-gray-300 px-4 py-4 sm:mt-5 sm:px-5">
+        <div className="mt-5 rounded-lg border border-gray-300 px-5 py-4 print:mt-5">
           <p className="mb-2 text-[11px] font-semibold uppercase text-gray-500">
             Quotation For
           </p>
 
-          <p
-            className="break-words text-base font-bold text-gray-900"
-            title={quotation.clientName}
-          >
+          <p className="text-base font-bold text-gray-900">
             {quotation.clientName}
           </p>
 
@@ -638,21 +642,17 @@ export default function QuotationDetails() {
           </p>
 
           {client?.contactPerson && (
-            <p className="mt-1 break-words text-xs text-gray-600">
+            <p className="mt-1 text-xs text-gray-600">
               Contact Person: {client.contactPerson}
             </p>
           )}
 
           {client?.phone && (
-            <p className="mt-1 break-words text-xs text-gray-600">
-              Phone: {client.phone}
-            </p>
+            <p className="mt-1 text-xs text-gray-600">Phone: {client.phone}</p>
           )}
 
           {client?.email && (
-            <p className="mt-1 break-all text-xs text-gray-600">
-              Email: {client.email}
-            </p>
+            <p className="mt-1 text-xs text-gray-600">Email: {client.email}</p>
           )}
         </div>
 
@@ -660,11 +660,11 @@ export default function QuotationDetails() {
             SERVICES
         ================================================= */}
 
-        <div className="mt-5 sm:mt-6">
+        <div className="mt-6">
           <h2 className="mb-3 text-base font-bold text-gray-900">Services</h2>
 
-          <div className="overflow-x-auto border border-gray-800">
-            <table className="w-full min-w-[720px] border-collapse text-[10px]">
+          <div className="overflow-hidden border border-gray-800">
+            <table className="w-full border-collapse text-[10px]">
               <thead>
                 <tr className="bg-gray-100">
                   <th className="w-[6%] border border-gray-800 px-2 py-2 text-center">
@@ -705,7 +705,7 @@ export default function QuotationDetails() {
                     </td>
 
                     <td className="border border-gray-800 px-2 py-3 align-top">
-                      <p className="break-words font-semibold text-gray-900">
+                      <p className="font-semibold text-gray-900">
                         {item.description || "Service"}
                       </p>
                     </td>
@@ -741,41 +741,39 @@ export default function QuotationDetails() {
         ================================================= */}
 
         <div className="mt-5 flex justify-end">
-          <div className="w-full sm:w-[390px]">
-            <table className="w-full border-collapse text-[11px]">
-              <tbody>
-                <tr>
-                  <td className="border border-gray-800 px-3 py-2 font-medium sm:px-4">
-                    Sub Total
-                  </td>
+          <table className="w-[390px] border-collapse text-[11px]">
+            <tbody>
+              <tr>
+                <td className="border border-gray-800 px-4 py-2 font-medium">
+                  Sub Total
+                </td>
 
-                  <td className="border border-gray-800 px-3 py-2 text-right font-semibold sm:px-4">
-                    {currency(quotation.subtotal)}
-                  </td>
-                </tr>
+                <td className="border border-gray-800 px-4 py-2 text-right font-semibold">
+                  {currency(quotation.subtotal)}
+                </td>
+              </tr>
 
-                <tr>
-                  <td className="border border-gray-800 px-3 py-2 font-medium sm:px-4">
-                    GST ({quotation.tax}%)
-                  </td>
+              <tr>
+                <td className="border border-gray-800 px-4 py-2 font-medium">
+                  GST ({quotation.tax}%)
+                </td>
 
-                  <td className="border border-gray-800 px-3 py-2 text-right font-semibold sm:px-4">
-                    {currency(quotation.taxAmount)}
-                  </td>
-                </tr>
+                <td className="border border-gray-800 px-4 py-2 text-right font-semibold">
+                  {currency(quotation.taxAmount)}
+                </td>
+              </tr>
 
-                <tr>
-                  <td className="border border-gray-800 px-3 py-3 text-sm font-bold sm:px-4">
-                    Grand Total
-                  </td>
+              <tr>
+                <td className="border border-gray-800 px-4 py-3 text-sm font-bold">
+                  Grand Total
+                </td>
 
-                  <td className="border border-gray-800 px-3 py-3 text-right text-sm font-bold text-green-700 sm:px-4">
-                    {currency(quotation.grandTotal)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                <td className="border border-gray-800 px-4 py-3 text-right text-sm font-bold text-green-700">
+                  {currency(quotation.grandTotal)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
         {/* =================================================
@@ -783,12 +781,12 @@ export default function QuotationDetails() {
         ================================================= */}
 
         {quotation.implementationProcess && (
-          <div className="mt-5 border-t border-gray-300 pt-4 sm:mt-6">
+          <div className="mt-6 border-t border-gray-300 pt-4">
             <h2 className="mb-2 text-xs font-bold text-gray-900">
               Implementation Process
             </h2>
 
-            <div className="whitespace-pre-line break-words text-[10px] leading-5 text-gray-700">
+            <div className="whitespace-pre-line text-[10px] leading-5 text-gray-700">
               {quotation.implementationProcess}
             </div>
           </div>
@@ -804,7 +802,7 @@ export default function QuotationDetails() {
               Post Sales Support & Training
             </h2>
 
-            <div className="whitespace-pre-line break-words text-[10px] leading-5 text-gray-700">
+            <div className="whitespace-pre-line text-[10px] leading-5 text-gray-700">
               {quotation.supportTraining}
             </div>
           </div>
@@ -820,7 +818,7 @@ export default function QuotationDetails() {
               Scope of Work
             </h2>
 
-            <div className="whitespace-pre-line break-words text-[10px] leading-5 text-gray-700">
+            <div className="whitespace-pre-line text-[10px] leading-5 text-gray-700">
               {quotation.scopeOfWork}
             </div>
           </div>
@@ -834,7 +832,7 @@ export default function QuotationDetails() {
           <div className="mt-5 border-t border-gray-300 pt-4">
             <h2 className="mb-2 text-xs font-bold text-gray-900">Remarks</h2>
 
-            <div className="whitespace-pre-line break-words text-[10px] leading-5 text-gray-700">
+            <div className="whitespace-pre-line text-[10px] leading-5 text-gray-700">
               {quotation.remarks}
             </div>
           </div>
@@ -850,7 +848,7 @@ export default function QuotationDetails() {
               Terms & Conditions
             </h2>
 
-            <div className="whitespace-pre-line break-words text-[10px] leading-5 text-gray-700">
+            <div className="whitespace-pre-line text-[10px] leading-5 text-gray-700">
               {quotation.termsConditions}
             </div>
           </div>
@@ -875,11 +873,11 @@ export default function QuotationDetails() {
           BOTTOM ACTIONS
       ===================================================== */}
 
-      <div className="flex flex-col gap-2 pb-8 print:hidden sm:flex-row sm:flex-wrap sm:justify-end sm:gap-3 sm:pb-10">
+      <div className="flex justify-end gap-3 pb-10 print:hidden">
         <button
           type="button"
           onClick={() => navigate(`/quotations/${quotation.id}/edit`)}
-          className="w-full rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 sm:w-auto"
+          className="rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
         >
           Edit Quotation
         </button>
@@ -887,7 +885,7 @@ export default function QuotationDetails() {
         <button
           type="button"
           onClick={() => window.print()}
-          className="w-full rounded-lg bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
+          className="rounded-lg bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
         >
           Print Quotation
         </button>
@@ -896,7 +894,7 @@ export default function QuotationDetails() {
           <button
             type="button"
             onClick={handleInvoiceAction}
-            className={`w-full rounded-lg px-5 py-2.5 text-sm font-semibold text-white sm:w-auto ${
+            className={`rounded-lg px-5 py-2.5 text-sm font-semibold text-white ${
               existingInvoice
                 ? "bg-blue-600 hover:bg-blue-700"
                 : "bg-green-600 hover:bg-green-700"
@@ -914,6 +912,7 @@ export default function QuotationDetails() {
       <style>
         {`
           @media print {
+
             @page {
               size: A4;
               margin: 12mm;
@@ -946,7 +945,6 @@ export default function QuotationDetails() {
               top: 0;
               width: 100% !important;
               max-width: none !important;
-              min-width: 0 !important;
               margin: 0 !important;
               padding: 0 !important;
               background: white !important;

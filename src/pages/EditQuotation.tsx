@@ -196,53 +196,80 @@ export default function EditQuotation() {
   ===================================================== */
 
   useEffect(() => {
-    if (!quotationId) {
-      setQuotation(null);
-      return;
+    let mounted = true;
+
+    async function loadQuotation() {
+      if (!quotationId) {
+        if (mounted) {
+          setQuotation(null);
+        }
+        return;
+      }
+
+      try {
+        const data = await getQuotation(quotationId);
+
+        if (!mounted) {
+          return;
+        }
+
+        if (!data) {
+          setQuotation(null);
+          return;
+        }
+
+        setQuotation(data);
+
+        setClientId(text(data.clientId ?? ""));
+
+        /*
+          IMPORTANT:
+          Quotation number is display-only during edit.
+          It must NEVER be regenerated.
+        */
+        setQuotationNumber(text(data.quotationNumber));
+
+        setQuotationDate(text(data.quotationDate));
+
+        setValidUntil(text(data.validUntil));
+
+        setStatus(text(data.status) || "Draft");
+
+        const existingItems =
+          Array.isArray(data.items) && data.items.length > 0
+            ? data.items.map(normalizeQuotationItem)
+            : [emptyItem()];
+
+        setItems(existingItems);
+
+        setGst(number(data.tax ?? 18));
+
+        setScopeOfWork(text(data.scopeOfWork));
+
+        setImplementationProcess(text(data.implementationProcess));
+
+        setSupportTraining(text(data.supportTraining));
+
+        setRemarks(text(data.remarks));
+
+        setTermsConditions(text(data.termsConditions));
+
+        setError("");
+      } catch (loadError) {
+        console.error("Failed to load quotation:", loadError);
+
+        if (mounted) {
+          setQuotation(null);
+          setError("Failed to load quotation. Please refresh and try again.");
+        }
+      }
     }
 
-    const data = getQuotation(quotationId);
+    void loadQuotation();
 
-    if (!data) {
-      setQuotation(null);
-      return;
-    }
-
-    setQuotation(data);
-
-    setClientId(text(data.clientId ?? ""));
-
-    /*
-      IMPORTANT:
-      Quotation number is display-only during edit.
-      It must NEVER be regenerated.
-    */
-    setQuotationNumber(text(data.quotationNumber));
-
-    setQuotationDate(text(data.quotationDate));
-
-    setValidUntil(text(data.validUntil));
-
-    setStatus(text(data.status) || "Draft");
-
-    const existingItems =
-      Array.isArray(data.items) && data.items.length > 0
-        ? data.items.map(normalizeQuotationItem)
-        : [emptyItem()];
-
-    setItems(existingItems);
-
-    setGst(number(data.tax ?? 18));
-
-    setScopeOfWork(text(data.scopeOfWork));
-
-    setImplementationProcess(text(data.implementationProcess));
-
-    setSupportTraining(text(data.supportTraining));
-
-    setRemarks(text(data.remarks));
-
-    setTermsConditions(text(data.termsConditions));
+    return () => {
+      mounted = false;
+    };
   }, [quotationId]);
 
   /* =====================================================
@@ -250,13 +277,33 @@ export default function EditQuotation() {
   ===================================================== */
 
   useEffect(() => {
-    const loadedClients = getClients() || [];
+    let mounted = true;
 
-    const loadedServices = getServices() || [];
+    const loadData = async () => {
+      try {
+        const loadedClients = getClients() || [];
+        const loadedServices = await getServices();
 
-    setClients(loadedClients as AnyRecord[]);
+        if (!mounted) {
+          return;
+        }
 
-    setServices(loadedServices as AnyRecord[]);
+        setClients(loadedClients as AnyRecord[]);
+        setServices(loadedServices as AnyRecord[]);
+      } catch (error) {
+        console.error("Failed to load clients/services:", error);
+
+        if (mounted) {
+          setError("Failed to load clients or services. Please refresh.");
+        }
+      }
+    };
+
+    void loadData();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   /* =====================================================
@@ -501,7 +548,7 @@ export default function EditQuotation() {
      SAVE
   ===================================================== */
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setError("");
@@ -513,6 +560,11 @@ export default function EditQuotation() {
 
     if (!quotation) {
       setError("Quotation could not be loaded.");
+      return;
+    }
+
+    if (quotation.isArchived === true) {
+      setError("Archived quotations cannot be edited.");
       return;
     }
 
@@ -590,7 +642,7 @@ export default function EditQuotation() {
       termsConditions,
     };
 
-    const saved = updateQuotation(quotationId, updatedQuotation);
+    const saved = await updateQuotation(quotationId, updatedQuotation);
 
     if (!saved) {
       setError("Quotation could not be updated. Please try again.");

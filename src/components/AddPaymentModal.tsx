@@ -39,8 +39,8 @@ function currency(value: number): string {
 
 function compressImage(
   file: File,
-  maxWidth = 1600,
-  quality = 0.75,
+  maxWidth = 1400,
+  quality = 0.72,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -199,7 +199,7 @@ export default function AddPaymentModal({
      SUBMIT
   ======================================================= */
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setError("");
@@ -243,7 +243,7 @@ export default function AddPaymentModal({
        * Payment proof is stored as the compressed
        * data URL string.
        */
-      addInvoicePayment(invoice.id, {
+      await addInvoicePayment(invoice.id, {
         paymentDate,
         amountPaid: amount,
         paymentMode,

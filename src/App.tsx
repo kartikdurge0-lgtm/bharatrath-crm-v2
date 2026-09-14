@@ -6,8 +6,6 @@ import ProtectedRoute from "./components/ProtectedRoute";
 // Authentication
 import Login from "./pages/Login";
 import AuthCallback from "./pages/AuthCallback";
-import { supabase } from "./lib/supabase";
-import { initializeClientSync } from "./data/clientStore";
 
 // Dashboard
 import Dashboard from "./pages/Dashboard";
@@ -17,7 +15,6 @@ import Clients from "./pages/Clients";
 import AddClient from "./pages/AddClient";
 import ClientDetails from "./pages/ClientDetails";
 import EditClient from "./pages/EditClient";
-import ArchivedClients from "./pages/ArchivedClients";
 
 // Renewals
 import Renewals from "./pages/Renewals";
@@ -69,35 +66,32 @@ import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 
 function App() {
-  console.log("Supabase client:", supabase);
-  initializeClientSync();
-
   return (
     <BrowserRouter>
       <Routes>
-        {/* =========================================
+        {/* =================================================
             AUTHENTICATION
-        ========================================= */}
+        ================================================= */}
 
         <Route path="/login" element={<Login />} />
 
         <Route path="/auth/callback" element={<AuthCallback />} />
 
-        {/* =========================================
+        {/* =================================================
             PROTECTED CRM
-        ========================================= */}
+        ================================================= */}
 
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayout />}>
-            {/* =========================================
+            {/* =================================================
                 DASHBOARD
-            ========================================= */}
+            ================================================= */}
 
             <Route path="/" element={<Dashboard />} />
 
-            {/* =========================================
+            {/* =================================================
                 CLIENT MANAGEMENT
-            ========================================= */}
+            ================================================= */}
 
             <Route path="/clients" element={<Clients />} />
 
@@ -107,11 +101,9 @@ function App() {
 
             <Route path="/clients/:clientId/edit" element={<EditClient />} />
 
-            <Route path="/archived-clients" element={<ArchivedClients />} />
-
-            {/* =========================================
+            {/* =================================================
                 RENEWALS
-            ========================================= */}
+            ================================================= */}
 
             <Route path="/renewals" element={<Renewals />} />
 
@@ -121,9 +113,9 @@ function App() {
 
             <Route path="/renewals/:renewalId/edit" element={<EditRenewal />} />
 
-            {/* =========================================
+            {/* =================================================
                 FOLLOW-UPS
-            ========================================= */}
+            ================================================= */}
 
             <Route path="/follow-ups" element={<FollowUps />} />
 
@@ -139,9 +131,9 @@ function App() {
               element={<EditFollowUp />}
             />
 
-            {/* =========================================
+            {/* =================================================
                 LEADS
-            ========================================= */}
+            ================================================= */}
 
             <Route path="/leads" element={<Leads />} />
 
@@ -151,17 +143,17 @@ function App() {
 
             <Route path="/leads/:leadId/edit" element={<EditLead />} />
 
-            {/* =========================================
+            {/* =================================================
                 SALES PERSONS
-            ========================================= */}
+            ================================================= */}
 
             <Route path="/sales-persons" element={<SalesPersons />} />
 
             <Route path="/add-sales-person" element={<AddSalesPerson />} />
 
-            {/* =========================================
+            {/* =================================================
                 SERVICES
-            ========================================= */}
+            ================================================= */}
 
             <Route path="/services" element={<Services />} />
 
@@ -171,9 +163,9 @@ function App() {
 
             <Route path="/services/:serviceId/edit" element={<EditService />} />
 
-            {/* =========================================
+            {/* =================================================
                 QUOTATIONS
-            ========================================= */}
+            ================================================= */}
 
             <Route path="/quotations" element={<Quotations />} />
 
@@ -189,9 +181,9 @@ function App() {
               element={<EditQuotation />}
             />
 
-            {/* =========================================
+            {/* =================================================
                 INVOICES
-            ========================================= */}
+            ================================================= */}
 
             <Route path="/invoices" element={<Invoices />} />
 
@@ -201,29 +193,29 @@ function App() {
 
             <Route path="/invoices/:invoiceId/edit" element={<EditInvoice />} />
 
-            {/* =========================================
+            {/* =================================================
                 PAYMENTS
-            ========================================= */}
+            ================================================= */}
 
             <Route path="/payments" element={<Payments />} />
 
-            {/* =========================================
+            {/* =================================================
                 REPORTS
-            ========================================= */}
+            ================================================= */}
 
             <Route path="/reports" element={<Reports />} />
 
-            {/* =========================================
+            {/* =================================================
                 SETTINGS
-            ========================================= */}
+            ================================================= */}
 
             <Route path="/settings" element={<Settings />} />
           </Route>
         </Route>
 
-        {/* =========================================
+        {/* =================================================
             FALLBACK
-        ========================================= */}
+        ================================================= */}
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

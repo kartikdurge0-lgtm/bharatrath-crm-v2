@@ -2,14 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 export type SearchableClient = {
   id: string | number;
+
+  // Preferred stable CRM identifier
+  crm_client_id?: string | null;
+
   company?: string;
   companyName?: string;
   company_name?: string;
   name?: string;
+
   contactPerson?: string;
   contact_person?: string;
+
   phone?: string;
   mobile?: string;
+
   archived?: boolean;
 };
 
@@ -39,6 +46,47 @@ function getClientPhone(client: SearchableClient): string {
   return client.phone || client.mobile || "";
 }
 
+/**
+ * Returns the stable CRM identifier when available.
+ * Falls back to the component's existing id.
+ */
+function getClientKey(client: SearchableClient): string {
+  const crmId = client.crm_client_id?.trim();
+
+  if (crmId) {
+    return crmId;
+  }
+
+  return String(client.id);
+}
+
+/**
+ * Removes duplicate clients before rendering.
+ *
+ * Priority:
+ * 1. crm_client_id
+ * 2. id
+ *
+ * The first occurrence is retained.
+ */
+function deduplicateClients(clients: SearchableClient[]): SearchableClient[] {
+  const seen = new Set<string>();
+  const uniqueClients: SearchableClient[] = [];
+
+  for (const client of clients) {
+    const key = getClientKey(client);
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    uniqueClients.push(client);
+  }
+
+  return uniqueClients;
+}
+
 export default function SearchableClientSelect({
   clients,
   value,
@@ -48,36 +96,78 @@ export default function SearchableClientSelect({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const selectedClient = clients.find(
-    (client) => String(client.id) === String(value),
-  );
+  /**
+   * Deduplicate the incoming client list.
+   *
+   * This protects the UI even if duplicate records
+   * accidentally come from Supabase or another source.
+   */
+  const uniqueClients = useMemo(() => {
+    return deduplicateClients(clients);
+  }, [clients]);
+
+  /**
+   * Find the currently selected client.
+   *
+   * Existing callers normally pass the client's id.
+   * We also support crm_client_id for safer matching.
+   */
+  const selectedClient = useMemo(() => {
+    const normalizedValue = String(value);
+
+    return (
+      uniqueClients.find((client) => String(client.id) === normalizedValue) ||
+      uniqueClients.find(
+        (client) => getClientKey(client) === normalizedValue,
+      ) ||
+      null
+    );
+  }, [uniqueClients, value]);
 
   const selectedName = selectedClient ? getClientCompany(selectedClient) : "";
 
+  /**
+   * Filter after deduplication.
+   *
+   * Search supports:
+   * - Company
+   * - Contact person
+   * - Phone
+   * - Client ID
+   * - CRM Client ID
+   */
   const filteredClients = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     if (!query) {
-      return clients;
+      return uniqueClients;
     }
 
-    return clients.filter((client) => {
+    return uniqueClients.filter((client) => {
       const company = getClientCompany(client).toLowerCase();
       const contact = getClientContact(client).toLowerCase();
       const phone = getClientPhone(client).toLowerCase();
+
       const id = String(client.id).toLowerCase();
+
+      const crmId = String(client.crm_client_id || "").toLowerCase();
 
       return (
         company.includes(query) ||
         contact.includes(query) ||
         phone.includes(query) ||
-        id.includes(query)
+        id.includes(query) ||
+        crmId.includes(query)
       );
     });
-  }, [clients, search]);
+  }, [uniqueClients, search]);
 
+  /**
+   * Close dropdown when clicking outside.
+   */
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
       if (
@@ -108,7 +198,10 @@ export default function SearchableClientSelect({
         type="button"
         disabled={disabled}
         onClick={() => {
-          if (disabled) return;
+          if (disabled) {
+            return;
+          }
+
           setOpen((current) => !current);
           setSearch("");
         }}
@@ -123,6 +216,7 @@ export default function SearchableClientSelect({
 
       {open && (
         <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+          {/* Search */}
           <div className="border-b border-slate-200 bg-white p-2">
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -140,6 +234,7 @@ export default function SearchableClientSelect({
             </div>
           </div>
 
+          {/* Client list */}
           <div className="max-h-64 overflow-y-auto">
             {filteredClients.length === 0 ? (
               <div className="px-4 py-6 text-center text-sm text-slate-500">
@@ -150,13 +245,19 @@ export default function SearchableClientSelect({
                 const company = getClientCompany(client);
                 const contact = getClientContact(client);
                 const phone = getClientPhone(client);
-                const isSelected = String(client.id) === String(value);
+
+                const clientId = String(client.id);
+                const stableKey = getClientKey(client);
+
+                const isSelected =
+                  String(client.id) === String(value) ||
+                  stableKey === String(value);
 
                 return (
                   <button
                     type="button"
-                    key={String(client.id)}
-                    onClick={() => handleSelect(String(client.id))}
+                    key={stableKey}
+                    onClick={() => handleSelect(clientId)}
                     className={`block w-full border-b border-slate-100 px-4 py-3 text-left last:border-b-0 hover:bg-green-50 ${
                       isSelected ? "bg-green-50" : "bg-white"
                     }`}
@@ -168,12 +269,12 @@ export default function SearchableClientSelect({
                         </p>
 
                         <p className="mt-0.5 text-xs text-slate-500">
-                          {contact || phone || String(client.id)}
+                          {contact || phone || client.crm_client_id || clientId}
                         </p>
                       </div>
 
                       <span className="shrink-0 text-xs text-slate-400">
-                        {client.id}
+                        {client.crm_client_id || clientId}
                       </span>
                     </div>
                   </button>

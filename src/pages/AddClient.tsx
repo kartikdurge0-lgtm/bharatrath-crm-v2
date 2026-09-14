@@ -5,8 +5,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   addClient,
   archiveClient,
-  getClients,
-  getClientById,
+  getClientsFromSupabase,
+  getClientByIdFromSupabase,
 } from "../data/clientStore";
 
 import type { Client } from "../data/clientStore";
@@ -25,16 +25,25 @@ export default function AddClient() {
   const fromLead = Boolean(leadId);
 
   const [company, setCompany] = useState("");
+
   const [contactPerson, setContactPerson] = useState("");
+
   const [phone, setPhone] = useState("");
+
   const [email, setEmail] = useState("");
+
   const [address, setAddress] = useState("");
+
   const [gst, setGst] = useState("");
+
   const [services, setServices] = useState("");
+
   const [status, setStatus] = useState("Active");
 
   const [error, setError] = useState("");
+
   const [loadingLead, setLoadingLead] = useState(false);
+
   const [saving, setSaving] = useState(false);
 
   /* =======================================================
@@ -61,15 +70,18 @@ export default function AddClient() {
 
         if (!lead) {
           setError("Lead not found.");
+
           return;
         }
 
         /* -------------------------------------------------
-           Already converted protection
+           ALREADY CONVERTED PROTECTION
         ------------------------------------------------- */
 
         if (lead.convertedClientId) {
-          const existingClient = getClientById(lead.convertedClientId);
+          const existingClient = await getClientByIdFromSupabase(
+            lead.convertedClientId,
+          );
 
           if (existingClient) {
             setError(
@@ -85,7 +97,7 @@ export default function AddClient() {
         }
 
         /* -------------------------------------------------
-           Only Won leads can become Clients
+           ONLY WON LEADS CAN BECOME CLIENTS
         ------------------------------------------------- */
 
         if (lead.status !== "Won") {
@@ -95,34 +107,54 @@ export default function AddClient() {
         }
 
         /* -------------------------------------------------
-           Prefill
+           PREFILL BASIC DETAILS
         ------------------------------------------------- */
 
         setCompany(lead.companyName || "");
+
         setContactPerson(lead.contactPerson || "");
+
         setPhone(lead.phone || "");
+
         setEmail(lead.email || "");
+
         setAddress(lead.address || "");
 
         /* -------------------------------------------------
-           Prefill Service
+           PREFILL SERVICE
         ------------------------------------------------- */
 
         if (lead.interestedService) {
-          const serviceList = getServices();
+          try {
+            const serviceList = await getServices();
 
-          const service = serviceList.find(
-            (item) => item.id === lead.interestedService,
-          );
+            if (!mounted) {
+              return;
+            }
 
-          if (service) {
-            setServices(
-              service.service_name ||
-                service.serviceName ||
-                lead.interestedService,
+            const service = serviceList.find(
+              (item) => String(item.id) === String(lead.interestedService),
             );
-          } else {
-            setServices(lead.interestedService);
+
+            if (service) {
+              setServices(
+                service.service_name ||
+                  service.serviceName ||
+                  lead.interestedService,
+              );
+            } else {
+              setServices(lead.interestedService);
+            }
+          } catch (serviceError) {
+            console.error("Failed to load service:", serviceError);
+
+            if (mounted) {
+              /*
+               * Service loading failure should not
+               * prevent lead conversion.
+               */
+              setServices(lead.interestedService);
+            }
           }
         }
       } catch (err) {
@@ -149,16 +181,26 @@ export default function AddClient() {
      GENERATE NEXT CLIENT ID
   ======================================================= */
 
-  const generateClientId = (): string => {
-    const clients = getClients();
+  const generateClientId = async (): Promise<string> => {
+    /*
+     * Supabase is the source of truth.
+     *
+     * Archived clients are intentionally included so that a CRM ID
+     * is never reused after a client is archived.
+     */
+    const clients = await getClientsFromSupabase();
 
     let maxNumber = 0;
 
     clients.forEach((client) => {
-      const match = client.id.match(/^CL-(\d+)$/);
+      const match = String(client.id).match(/^CL-(\d+)$/);
 
       if (match) {
-        maxNumber = Math.max(maxNumber, Number(match[1]));
+        const number = Number(match[1]);
+
+        if (Number.isFinite(number)) {
+          maxNumber = Math.max(maxNumber, number);
+        }
       }
     });
 
@@ -186,18 +228,19 @@ export default function AddClient() {
          1. RE-CHECK LEAD BEFORE SAVING
       ================================================= */
 
-      let currentLead = null;
+      let currentLead: Awaited<ReturnType<typeof getLead>> = null;
 
       if (leadId) {
         currentLead = await getLead(leadId);
 
         if (!currentLead) {
           setError("Lead not found.");
+
           return;
         }
 
         /* -----------------------------------------------
-           Lead must be Won
+           LEAD MUST BE WON
         ----------------------------------------------- */
 
         if (currentLead.status !== "Won") {
@@ -207,11 +250,13 @@ export default function AddClient() {
         }
 
         /* -----------------------------------------------
-           Lead can be converted only once
+           LEAD CAN BE CONVERTED ONLY ONCE
         ----------------------------------------------- */
 
         if (currentLead.convertedClientId) {
-          const existingClient = getClientById(currentLead.convertedClientId);
+          const existingClient = await getClientByIdFromSupabase(
+            currentLead.convertedClientId,
+          );
 
           if (existingClient) {
             setError(
@@ -232,11 +277,17 @@ export default function AddClient() {
       ================================================= */
 
       const trimmedCompany = company.trim();
+
       const trimmedContactPerson = contactPerson.trim();
+
       const trimmedPhone = phone.trim();
+
       const trimmedEmail = email.trim();
+
       const trimmedAddress = address.trim();
+
       const trimmedGst = gst.trim().toUpperCase();
+
       const trimmedServices = services.trim();
 
       if (!trimmedCompany && !trimmedContactPerson) {
@@ -247,6 +298,7 @@ export default function AddClient() {
 
       if (!trimmedPhone) {
         setError("Please enter phone number.");
+
         return;
       }
 
@@ -254,7 +306,7 @@ export default function AddClient() {
          3. DUPLICATE CLIENT CHECK
       ================================================= */
 
-      const clients = getClients();
+      const clients = await getClientsFromSupabase();
 
       const normalizedPhone = trimmedPhone.replace(/\D/g, "");
 
@@ -300,16 +352,16 @@ export default function AddClient() {
          4. GENERATE CRM CLIENT ID
       ================================================= */
 
-      const clientId = generateClientId();
+      const newClientId = await generateClientId();
 
-      createdClientId = clientId;
+      createdClientId = newClientId;
 
       /* =================================================
          5. CREATE CLIENT OBJECT
       ================================================= */
 
       const client: Client = {
-        id: clientId,
+        id: newClientId,
 
         company: trimmedCompany,
 
@@ -325,19 +377,21 @@ export default function AddClient() {
 
         services: trimmedServices || "Not Assigned",
 
-        status,
+        status: status.trim() || "Active",
 
         archived: false,
       };
 
       /* =================================================
-         6. SAVE CLIENT
+         6. SAVE CLIENT TO SUPABASE
       ================================================= */
 
       /*
-       * addClient() waits for Supabase.
+       * addClient() performs the database operation
+       * first and then updates the local compatibility
+       * cache.
        *
-       * Returns Supabase clients.id.
+       * It returns the REAL Supabase clients.id.
        *
        * Example:
        *
@@ -359,13 +413,16 @@ export default function AddClient() {
 
       if (leadId && currentLead) {
         /*
-         * updateLead() accepts CRM client ID:
+         * Frontend stores CRM ID:
          *
          * CL-005
          *
-         * leadStore resolves:
+         * leadStore resolves it to:
          *
-         * CL-005 → clients.id = 45
+         * clients.id = 45
+         *
+         * because leads.converted_client_id is
+         * a BIGINT foreign key.
          */
 
         const updatedLead = await updateLead(currentLead.id, {
@@ -377,7 +434,7 @@ export default function AddClient() {
         });
 
         /* -----------------------------------------------
-           Verify Lead update
+           VERIFY LEAD UPDATE
         ----------------------------------------------- */
 
         if (!updatedLead) {
@@ -394,25 +451,27 @@ export default function AddClient() {
       }
 
       /* =================================================
-         8. OPEN CLIENT
+         8. OPEN CREATED CLIENT
       ================================================= */
 
       navigate(`/clients/${client.id}`);
     } catch (err) {
       console.error("Failed to create client:", err);
 
-      /*
-       * SAFETY CLEANUP
-       *
-       * Never permanently delete the partially
-       * created client.
-       *
-       * Archive it so history is preserved.
-       */
+      /* =================================================
+         SAFETY CLEANUP
+         -------------------------------------------------
+         NEVER permanently delete.
+
+         If client creation succeeded but lead
+         conversion failed, archive the created client
+         so the database history remains intact.
+      ================================================= */
 
       if (createdClientId) {
         try {
-          const createdClient = getClientById(createdClientId);
+          const createdClient =
+            await getClientByIdFromSupabase(createdClientId);
 
           if (createdClient && !createdClient.archived) {
             await archiveClient(createdClientId);
@@ -425,7 +484,11 @@ export default function AddClient() {
         }
       }
 
-      setError(err instanceof Error ? err.message : "Failed to create client.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to create client. Please try again.",
+      );
     } finally {
       setSaving(false);
     }
@@ -438,6 +501,7 @@ export default function AddClient() {
   const handleBack = () => {
     if (fromLead && leadId) {
       navigate(`/leads/${leadId}`);
+
       return;
     }
 
@@ -458,7 +522,8 @@ export default function AddClient() {
         <button
           type="button"
           onClick={handleBack}
-          className="mb-3 inline-flex min-h-8 items-center text-sm text-gray-500 transition hover:text-gray-800"
+          disabled={saving}
+          className="mb-3 inline-flex min-h-8 items-center text-sm text-gray-500 transition hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
           ← Back
         </button>
@@ -498,7 +563,10 @@ export default function AddClient() {
       ================================================= */}
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3.5 sm:p-4">
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 p-3.5 sm:p-4"
+        >
           <p className="break-words text-sm font-medium text-red-700">
             {error}
           </p>
@@ -525,12 +593,16 @@ export default function AddClient() {
           </div>
 
           <div className="grid min-w-0 grid-cols-1 gap-4 p-4 sm:gap-5 sm:p-5 md:grid-cols-2">
+            {/* Company */}
+
             <Field
               label="Company Name"
               value={company}
               onChange={setCompany}
               placeholder="Enter company name"
             />
+
+            {/* Contact Person */}
 
             <Field
               label="Contact Person"
@@ -539,13 +611,18 @@ export default function AddClient() {
               placeholder="Enter contact person"
             />
 
+            {/* Phone */}
+
             <Field
               label="Phone"
               value={phone}
               onChange={setPhone}
               placeholder="+91 XXXXX XXXXX"
               required
+              type="tel"
             />
+
+            {/* Email */}
 
             <Field
               label="Email"
@@ -554,6 +631,8 @@ export default function AddClient() {
               onChange={setEmail}
               placeholder="example@company.com"
             />
+
+            {/* Address */}
 
             <div className="min-w-0 md:col-span-2">
               <label
@@ -569,7 +648,8 @@ export default function AddClient() {
                 onChange={(event) => setAddress(event.target.value)}
                 rows={3}
                 placeholder="Enter address"
-                className="min-h-[88px] w-full min-w-0 resize-y rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500 sm:px-4"
+                disabled={saving}
+                className="min-h-[88px] w-full min-w-0 resize-y rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500 disabled:cursor-not-allowed disabled:bg-gray-50 sm:px-4"
               />
             </div>
           </div>
@@ -608,10 +688,12 @@ export default function AddClient() {
 
               <input
                 id="client-services"
+                type="text"
                 value={services}
                 onChange={(event) => setServices(event.target.value)}
                 placeholder="Website, POS, Hosting..."
-                className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500 sm:h-11 sm:px-4"
+                disabled={saving}
+                className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500 disabled:cursor-not-allowed disabled:bg-gray-50 sm:h-11 sm:px-4"
               />
             </div>
 
@@ -629,11 +711,14 @@ export default function AddClient() {
                 id="client-status"
                 value={status}
                 onChange={(event) => setStatus(event.target.value)}
-                className="h-10 w-full min-w-0 rounded-lg border border-gray-300 bg-white px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500 sm:h-11 sm:px-4"
+                disabled={saving}
+                className="h-10 w-full min-w-0 rounded-lg border border-gray-300 bg-white px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500 disabled:cursor-not-allowed disabled:bg-gray-50 sm:h-11 sm:px-4"
               >
                 <option value="Active">Active</option>
 
                 <option value="Pending">Pending</option>
+
+                <option value="Inactive">Inactive</option>
               </select>
             </div>
           </div>
@@ -685,10 +770,15 @@ function Field({
   type?: string;
   required?: boolean;
 }) {
+  const fieldId = `field-${label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")}`;
+
   return (
     <div className="min-w-0">
       <label
-        htmlFor={`field-${label.toLowerCase().replace(/\s+/g, "-")}`}
+        htmlFor={fieldId}
         className="mb-1.5 block text-sm font-medium text-gray-700"
       >
         {label}
@@ -697,12 +787,13 @@ function Field({
       </label>
 
       <input
-        id={`field-${label.toLowerCase().replace(/\s+/g, "-")}`}
+        id={fieldId}
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         required={required}
+        disabled={false}
         className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500 sm:h-11 sm:px-4"
       />
     </div>

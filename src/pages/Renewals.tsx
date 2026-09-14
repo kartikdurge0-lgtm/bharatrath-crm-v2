@@ -1,45 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getRenewals, saveRenewals, type Renewal } from "../data/renewalStore";
+import { getActiveRenewals, type Renewal } from "../data/renewalStore";
 import Pagination from "../components/Pagination";
 
 const PAGE_SIZE = 6;
-
-const defaultRenewals: Renewal[] = [
-  {
-    id: "REN-001",
-    clientId: "CL-001",
-    clientName: "SV enterprises pvt ltd",
-    service: "Website Hosting",
-    renewalDate: "2026-09-15",
-    amount: 3500,
-    status: "Upcoming",
-    notes: "Website hosting renewal.",
-    createdAt: "2026-08-29",
-  },
-  {
-    id: "REN-002",
-    clientId: "CL-002",
-    clientName: "Housey",
-    service: "Domain",
-    renewalDate: "2026-09-05",
-    amount: 1200,
-    status: "Due Soon",
-    notes: "Domain renewal reminder.",
-    createdAt: "2026-08-29",
-  },
-  {
-    id: "REN-003",
-    clientId: "CL-003",
-    clientName: "Maharashtra Foods",
-    service: "Digital Marketing",
-    renewalDate: "2026-08-20",
-    amount: 5000,
-    status: "Overdue",
-    notes: "Digital marketing renewal.",
-    createdAt: "2026-08-29",
-  },
-];
 
 export default function Renewals() {
   const navigate = useNavigate();
@@ -49,86 +13,56 @@ export default function Renewals() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
 
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
   /* --------------------------------
-     Load renewals
+     Load renewals from Supabase
+     Supabase is the source of truth.
   -------------------------------- */
 
-  const loadRenewals = () => {
-    const existing = getRenewals();
+  const loadRenewals = async () => {
+    try {
+      setError("");
 
-    if (existing.length === 0) {
-      saveRenewals(defaultRenewals);
-      setRenewals(defaultRenewals);
-      return;
+      const activeRenewals = await getActiveRenewals();
+
+      /*
+       * renewalStore calculates the display status from the
+       * renewal date. We do not write calculated status back
+       * to LocalStorage or Supabase from this page.
+       */
+      setRenewals(activeRenewals);
+    } catch (err) {
+      console.error("Failed to load renewals:", err);
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load renewals. Please try again.",
+      );
+    } finally {
+      setLoading(false);
     }
-
-    setRenewals(existing);
   };
 
   useEffect(() => {
-    loadRenewals();
+    void loadRenewals();
 
-    window.addEventListener("focus", loadRenewals);
+    /*
+     * Refresh when the user returns to the tab so changes made
+     * from Add/Edit/Details pages are immediately reflected.
+     */
+    const handleFocus = () => {
+      void loadRenewals();
+    };
+
+    window.addEventListener("focus", handleFocus);
 
     return () => {
-      window.removeEventListener("focus", loadRenewals);
+      window.removeEventListener("focus", handleFocus);
     };
   }, []);
-
-  /* --------------------------------
-     Calculate renewal status
-  -------------------------------- */
-
-  const getCalculatedStatus = (renewal: Renewal): Renewal["status"] => {
-    // Completed should never become Overdue again.
-    if (renewal.status === "Completed") {
-      return "Completed";
-    }
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const renewalDate = new Date(renewal.renewalDate);
-    renewalDate.setHours(0, 0, 0, 0);
-
-    const difference = Math.ceil(
-      (renewalDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
-    );
-
-    if (difference < 0) {
-      return "Overdue";
-    }
-
-    if (difference <= 7) {
-      return "Due Soon";
-    }
-
-    return "Upcoming";
-  };
-
-  /* --------------------------------
-     Keep renewal status updated
-  -------------------------------- */
-
-  useEffect(() => {
-    if (renewals.length === 0) {
-      return;
-    }
-
-    const updated = renewals.map((renewal) => ({
-      ...renewal,
-      status: getCalculatedStatus(renewal),
-    }));
-
-    const changed = updated.some(
-      (renewal, index) => renewal.status !== renewals[index].status,
-    );
-
-    if (changed) {
-      setRenewals(updated);
-      saveRenewals(updated);
-    }
-  }, [renewals]);
 
   /* --------------------------------
      Summary
@@ -414,11 +348,36 @@ export default function Renewals() {
       </div>
 
       {/* --------------------------------
+          Error
+      -------------------------------- */}
+
+      {error && (
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3.5 sm:p-4"
+        >
+          <p className="text-sm font-medium text-red-700">{error}</p>
+        </div>
+      )}
+
+      {/* --------------------------------
           Table
       -------------------------------- */}
 
       <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        {paginatedRenewals.length > 0 ? (
+        {loading ? (
+          <div className="px-5 py-12 text-center">
+            <div className="mb-2 text-3xl">🔄</div>
+
+            <p className="text-sm font-semibold text-slate-700">
+              Loading renewals...
+            </p>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Fetching the latest renewal records.
+            </p>
+          </div>
+        ) : paginatedRenewals.length > 0 ? (
           <>
             <div className="w-full overflow-x-auto">
               <table className="w-full min-w-[760px]">

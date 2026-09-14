@@ -201,8 +201,35 @@ export default function EditFollowUp() {
   ======================================================= */
 
   const clients = getClients();
-  const quotations = getQuotations();
   const renewals = getRenewals();
+
+  const [quotations, setQuotations] = useState<
+    Awaited<ReturnType<typeof getQuotations>>
+  >([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadQuotations() {
+      try {
+        const quotationList = await getQuotations();
+        if (mounted) {
+          setQuotations(quotationList);
+        }
+      } catch (error) {
+        console.error("Failed to load quotations:", error);
+        if (mounted) {
+          setQuotations([]);
+        }
+      }
+    }
+
+    void loadQuotations();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   /* =======================================================
      FORM STATE

@@ -10,6 +10,7 @@ import {
   addQuotation,
   calculateQuotationTotals,
   generateQuotationId,
+  generateQuotationNumber,
   getQuotations,
   type Quotation,
   type QuotationItem,
@@ -129,36 +130,6 @@ function getQuotationNumericPart(
 }
 
 /* =========================================================
-   GET SAFE NEXT NUMBER
-========================================================= */
-
-function getSafeNextQuotationNumber(): string {
-  const settings = getQuotationNumberSettings();
-
-  const prefix = settings.prefix.trim() || "QUO-";
-
-  let nextNumber = Math.max(1, Number(settings.nextNumber) || 1);
-
-  const quotations = getQuotations();
-
-  let highestExistingNumber = 0;
-
-  for (const quotation of quotations) {
-    const quotationNumber = String(quotation.quotationNumber || "").trim();
-
-    const numericPart = getQuotationNumericPart(quotationNumber, prefix);
-
-    highestExistingNumber = Math.max(highestExistingNumber, numericPart);
-  }
-
-  if (highestExistingNumber >= nextNumber) {
-    nextNumber = highestExistingNumber + 1;
-  }
-
-  return `${prefix}${String(nextNumber).padStart(3, "0")}`;
-}
-
-/* =========================================================
    INCREMENT NUMBER
 ========================================================= */
 
@@ -203,7 +174,8 @@ export default function AddQuotation() {
   ======================================================= */
 
   const clients = useMemo<Client[]>(() => getClients(), []);
-  const services = useMemo<Service[]>(() => getServices(), []);
+
+  const [services, setServices] = useState<Service[]>([]);
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedInitialLead, setSelectedInitialLead] = useState<Lead | null>(
@@ -212,6 +184,38 @@ export default function AddQuotation() {
 
   const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
   const [loadingLeads, setLoadingLeads] = useState(true);
+
+  /* =======================================================
+     LOAD SERVICES
+  ======================================================= */
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadServices() {
+      try {
+        const data = await getServices();
+
+        if (!mounted) {
+          return;
+        }
+
+        setServices(data);
+      } catch (error) {
+        console.error("Failed to load services:", error);
+
+        if (mounted) {
+          setServices([]);
+        }
+      }
+    }
+
+    void loadServices();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   /* =======================================================
      LOAD LEADS
@@ -364,57 +368,65 @@ export default function AddQuotation() {
   ======================================================= */
 
   useEffect(() => {
-    try {
-      const quotations = getQuotations().filter(
-        (quotation) => quotation.isArchived !== true,
-      );
+    let mounted = true;
 
-      if (!quotations.length) {
-        return;
+    async function loadLastQuotationDefaults() {
+      try {
+        const quotations = await getQuotations();
+
+        if (!mounted || quotations.length === 0) {
+          return;
+        }
+
+        const latestQuotation = [...quotations].sort((a, b) => {
+          const dateA = new Date(
+            a.updatedAt || a.createdAt || a.quotationDate || "",
+          ).getTime();
+
+          const dateB = new Date(
+            b.updatedAt || b.createdAt || b.quotationDate || "",
+          ).getTime();
+
+          return dateB - dateA;
+        })[0];
+
+        if (!latestQuotation || !mounted) {
+          return;
+        }
+
+        if (latestQuotation.scopeOfWork) {
+          setScopeOfWork(latestQuotation.scopeOfWork);
+        }
+
+        if (latestQuotation.implementationProcess) {
+          setImplementationProcess(latestQuotation.implementationProcess);
+        }
+
+        if (latestQuotation.supportTraining) {
+          setSupportTraining(latestQuotation.supportTraining);
+        }
+
+        if (latestQuotation.remarks) {
+          setRemarks(latestQuotation.remarks);
+        }
+
+        if (latestQuotation.termsConditions) {
+          setTermsConditions(latestQuotation.termsConditions);
+        }
+
+        if (typeof latestQuotation.tax === "number") {
+          setTax(Math.min(100, Math.max(0, latestQuotation.tax)));
+        }
+      } catch (error) {
+        console.error("Failed to load last quotation defaults:", error);
       }
-
-      const latestQuotation = [...quotations].sort((a, b) => {
-        const dateA = new Date(
-          a.updatedAt || a.createdAt || a.quotationDate || "",
-        ).getTime();
-
-        const dateB = new Date(
-          b.updatedAt || b.createdAt || b.quotationDate || "",
-        ).getTime();
-
-        return dateB - dateA;
-      })[0];
-
-      if (!latestQuotation) {
-        return;
-      }
-
-      if (latestQuotation.scopeOfWork) {
-        setScopeOfWork(latestQuotation.scopeOfWork);
-      }
-
-      if (latestQuotation.implementationProcess) {
-        setImplementationProcess(latestQuotation.implementationProcess);
-      }
-
-      if (latestQuotation.supportTraining) {
-        setSupportTraining(latestQuotation.supportTraining);
-      }
-
-      if (latestQuotation.remarks) {
-        setRemarks(latestQuotation.remarks);
-      }
-
-      if (latestQuotation.termsConditions) {
-        setTermsConditions(latestQuotation.termsConditions);
-      }
-
-      if (typeof latestQuotation.tax === "number") {
-        setTax(Math.min(100, Math.max(0, latestQuotation.tax)));
-      }
-    } catch (error) {
-      console.error("Failed to load last quotation defaults:", error);
     }
+
+    void loadLastQuotationDefaults();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   /* =======================================================
@@ -604,7 +616,7 @@ export default function AddQuotation() {
      SUBMIT
   ======================================================= */
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setError("");
@@ -670,77 +682,97 @@ export default function AddQuotation() {
        QUOTATION NUMBER
     ----------------------------------------------------- */
 
-    const quotationNumber = getSafeNextQuotationNumber();
+    try {
+      /*
+       * Quotation number is generated by the Supabase-backed
+       * quotation store. This prevents LocalStorage from being
+       * the source of truth for numbering.
+       */
+      const quotationNumber = await generateQuotationNumber();
 
-    /* -----------------------------------------------------
+      /* -----------------------------------------------------
        CREATE QUOTATION
     ----------------------------------------------------- */
 
-    const now = new Date().toISOString();
+      const now = new Date().toISOString();
 
-    const quotation: Quotation = {
-      id: generateQuotationId(),
+      const quotation: Quotation = {
+        /*
+         * Supabase generates the real numeric quotation ID.
+         * The CRM QT-xxx ID generated here is only a compatibility
+         * value and is ignored by the store on insert.
+         */
+        id: await generateQuotationId(),
 
-      leadId: leadId || undefined,
+        leadId: leadId || undefined,
 
-      clientId,
+        clientId,
 
-      clientName,
+        clientName,
 
-      salesPersonId: salesPersonId || undefined,
+        salesPersonId: salesPersonId || undefined,
 
-      salesPersonName: selectedSalesPerson?.name || undefined,
+        salesPersonName: selectedSalesPerson?.name || undefined,
 
-      quotationNumber,
+        quotationNumber,
 
-      quotationDate,
+        quotationDate,
 
-      validUntil,
+        validUntil,
 
-      status,
+        status,
 
-      items: cleanedItems,
+        items: cleanedItems,
 
-      tax,
+        tax,
 
-      subtotal: finalTotals.subtotal,
+        subtotal: finalTotals.subtotal,
 
-      taxAmount: finalTotals.taxAmount,
+        taxAmount: finalTotals.taxAmount,
 
-      grandTotal: finalTotals.grandTotal,
+        grandTotal: finalTotals.grandTotal,
 
-      scopeOfWork,
+        scopeOfWork,
 
-      implementationProcess,
+        implementationProcess,
 
-      supportTraining,
+        supportTraining,
 
-      remarks,
+        remarks,
 
-      termsConditions,
+        termsConditions,
 
-      createdAt: now,
+        createdAt: now,
 
-      updatedAt: now,
-    };
+        updatedAt: now,
+      };
 
-    /* -----------------------------------------------------
+      /* -----------------------------------------------------
        SAVE
     ----------------------------------------------------- */
 
-    const savedQuotation = addQuotation(quotation);
+      const savedQuotation = await addQuotation(quotation);
 
-    /* -----------------------------------------------------
+      /* -----------------------------------------------------
        UPDATE NUMBER SETTINGS
     ----------------------------------------------------- */
 
-    incrementQuotationNumber(savedQuotation.quotationNumber);
+      incrementQuotationNumber(savedQuotation.quotationNumber);
 
-    /* -----------------------------------------------------
+      /* -----------------------------------------------------
        NAVIGATE
     ----------------------------------------------------- */
 
-    navigate("/quotations");
+      navigate("/quotations");
+    } catch (saveError) {
+      console.error("Failed to save quotation:", saveError);
+
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Failed to save quotation. Please try again.",
+      );
+    }
   }
 
   /* =======================================================

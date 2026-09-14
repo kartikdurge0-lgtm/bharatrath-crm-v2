@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
-  getClientById,
-  getClients,
+  getClientByIdFromSupabase,
+  getClientsFromSupabase,
   updateClient,
   type Client,
 } from "../data/clientStore";
@@ -21,20 +21,63 @@ export default function EditClient() {
      LOAD CLIENT
   ================================================= */
 
-  useEffect(() => {
+  const loadClient = useCallback(async () => {
     if (!clientId) {
+      setClient(null);
       setLoading(false);
       return;
     }
 
-    const existingClient = getClientById(clientId);
+    setLoading(true);
+    setError("");
 
-    if (existingClient) {
-      setClient(existingClient);
+    try {
+      const existingClient = await getClientByIdFromSupabase(clientId);
+
+      if (existingClient) {
+        setClient(existingClient);
+      } else {
+        setClient(null);
+      }
+    } catch (loadError) {
+      console.error("Failed to load client:", loadError);
+
+      setClient(null);
+      setError("Unable to load client details.");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }, [clientId]);
+
+  useEffect(() => {
+    void loadClient();
+  }, [loadClient]);
+
+  /* =================================================
+     REFRESH WHEN PAGE BECOMES VISIBLE
+  ================================================= */
+
+  useEffect(() => {
+    const handleFocus = () => {
+      void loadClient();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void loadClient();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [loadClient]);
 
   /* =================================================
      LOADING
@@ -43,7 +86,9 @@ export default function EditClient() {
   if (loading) {
     return (
       <div className="mx-auto w-full max-w-[1200px] min-w-0 p-1 sm:p-2">
-        <p className="text-sm text-gray-500">Loading client...</p>
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-10 text-center shadow-sm sm:px-6">
+          <p className="text-sm text-slate-500">Loading client...</p>
+        </div>
       </div>
     );
   }
@@ -63,6 +108,10 @@ export default function EditClient() {
           <p className="mt-1 text-sm text-gray-500">
             The requested client could not be found.
           </p>
+
+          {error ? (
+            <p className="mt-2 break-words text-sm text-red-600">{error}</p>
+          ) : null}
         </div>
 
         <button
@@ -84,7 +133,9 @@ export default function EditClient() {
     setError("");
 
     setClient((current) => {
-      if (!current) return current;
+      if (!current) {
+        return current;
+      }
 
       return {
         ...current,
@@ -97,8 +148,10 @@ export default function EditClient() {
      SAVE CLIENT
   ================================================= */
 
-  const handleSave = () => {
-    if (saving) return;
+  const handleSave = async () => {
+    if (saving) {
+      return;
+    }
 
     setError("");
 
@@ -106,17 +159,33 @@ export default function EditClient() {
        BASIC VALIDATION
     ----------------------------------------------- */
 
-    if (!client.company.trim() && !client.contactPerson.trim()) {
+    const company = client.company.trim();
+
+    const contactPerson = client.contactPerson.trim();
+
+    const phone = client.phone.trim();
+
+    const email = client.email.trim();
+
+    const address = client.address.trim();
+
+    const gst = client.gst.trim().toUpperCase();
+
+    const services = client.services.trim();
+
+    const status = client.status.trim() || "Active";
+
+    if (!company && !contactPerson) {
       setError("Please enter company name or contact person.");
       return;
     }
 
-    if (!client.contactPerson.trim()) {
+    if (!contactPerson) {
       setError("Contact person is required.");
       return;
     }
 
-    if (!client.phone.trim()) {
+    if (!phone) {
       setError("Mobile number is required.");
       return;
     }
@@ -125,14 +194,19 @@ export default function EditClient() {
        DUPLICATE CLIENT PROTECTION
 
        Current client is ignored.
-       Archived clients are also checked.
+
+       Archived clients are also checked because
+       duplicate company / phone / email should not
+       be created by editing an existing client.
     ----------------------------------------------- */
 
-    const clients = getClients();
+    const clients = await getClientsFromSupabase();
 
-    const normalizedPhone = client.phone.replace(/\D/g, "");
-    const normalizedEmail = client.email.trim().toLowerCase();
-    const normalizedCompany = client.company.trim().toLowerCase();
+    const normalizedPhone = phone.replace(/\D/g, "");
+
+    const normalizedEmail = email.toLowerCase();
+
+    const normalizedCompany = company.toLowerCase();
 
     const duplicate = clients.find((existingClient) => {
       /* Ignore current client */
@@ -147,18 +221,21 @@ export default function EditClient() {
 
       const existingCompany = existingClient.company.trim().toLowerCase();
 
-      const samePhone =
-        normalizedPhone && existingPhone && normalizedPhone === existingPhone;
+      const samePhone = Boolean(
+        normalizedPhone && existingPhone && normalizedPhone === existingPhone,
+      );
 
-      const sameEmail =
-        normalizedEmail && existingEmail && normalizedEmail === existingEmail;
+      const sameEmail = Boolean(
+        normalizedEmail && existingEmail && normalizedEmail === existingEmail,
+      );
 
-      const sameCompany =
+      const sameCompany = Boolean(
         normalizedCompany &&
         existingCompany &&
-        normalizedCompany === existingCompany;
+        normalizedCompany === existingCompany,
+      );
 
-      return Boolean(samePhone || sameEmail || sameCompany);
+      return samePhone || sameEmail || sameCompany;
     });
 
     /* -----------------------------------------------
@@ -195,48 +272,79 @@ export default function EditClient() {
     }
 
     /* -----------------------------------------------
+       UPDATED CLIENT
+
+       IMPORTANT:
+       Client ID remains immutable.
+
+       Archive state remains unchanged.
+
+       Historical invoices / quotations are not
+       modified here.
+    ----------------------------------------------- */
+
+    const updatedClient: Client = {
+      ...client,
+
+      /*
+       * Immutable CRM Client ID.
+       */
+      id: client.id,
+
+      /*
+       * Preserve existing archive state.
+       */
+      archived: client.archived === true,
+
+      /*
+       * Trim user-entered values.
+       */
+      company,
+
+      contactPerson,
+
+      phone,
+
+      email,
+
+      address,
+
+      gst,
+
+      services: services || "Not Assigned",
+
+      status,
+    };
+
+    /* -----------------------------------------------
        UPDATE
     ----------------------------------------------- */
 
     try {
       setSaving(true);
 
-      const updatedClient: Client = {
-        ...client,
-
-        /*
-         * Trim user-entered values before saving.
-         */
-        company: client.company.trim(),
-
-        contactPerson: client.contactPerson.trim(),
-
-        phone: client.phone.trim(),
-
-        email: client.email.trim(),
-
-        address: client.address.trim(),
-
-        gst: client.gst.trim().toUpperCase(),
-
-        services: client.services.trim() || "Not Assigned",
-
-        status: client.status.trim() || "Active",
-      };
+      /*
+       * IMPORTANT:
+       * updateClient() is now asynchronous.
+       *
+       * Supabase update completes first.
+       * Local cache is updated by the store only
+       * after the database operation succeeds.
+       */
+      await updateClient(updatedClient);
 
       /*
-       * Client ID and archive state remain unchanged.
-       *
-       * Historical invoices / quotations are not
-       * modified here.
+       * Navigate only after successful save.
        */
-      updateClient(updatedClient);
-
       navigate(`/clients/${updatedClient.id}`);
     } catch (err) {
       console.error("Failed to update client:", err);
 
-      setError(err instanceof Error ? err.message : "Failed to update client.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to update client. Please try again.",
+      );
     } finally {
       setSaving(false);
     }
@@ -265,8 +373,9 @@ export default function EditClient() {
 
         <button
           type="button"
+          disabled={saving}
           onClick={() => navigate(`/clients/${client.id}`)}
-          className="inline-flex min-h-10 w-full items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 sm:w-auto"
+          className="inline-flex min-h-10 w-full items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
         >
           ← Back to Client
         </button>
@@ -276,13 +385,16 @@ export default function EditClient() {
           ERROR
       ================================================= */}
 
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3.5 sm:p-4">
+      {error ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 p-3.5 sm:p-4"
+        >
           <p className="break-words text-sm font-medium text-red-700">
             {error}
           </p>
         </div>
-      )}
+      ) : null}
 
       {/* =================================================
           FORM CARD
@@ -315,16 +427,17 @@ export default function EditClient() {
               htmlFor="company-name"
               className="mb-1.5 block text-sm font-medium text-gray-700"
             >
-              Company Name{" "}
-              {!client.contactPerson && <span className="text-red-500">*</span>}
+              Company Name
             </label>
 
             <input
               id="company-name"
               type="text"
               value={client.company}
-              onChange={(e) => handleChange("company", e.target.value)}
-              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 sm:h-11 sm:px-4"
+              onChange={(event) => handleChange("company", event.target.value)}
+              disabled={saving}
+              autoComplete="organization"
+              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-gray-50 sm:h-11 sm:px-4"
             />
           </div>
 
@@ -344,8 +457,12 @@ export default function EditClient() {
               id="contact-person"
               type="text"
               value={client.contactPerson}
-              onChange={(e) => handleChange("contactPerson", e.target.value)}
-              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 sm:h-11 sm:px-4"
+              onChange={(event) =>
+                handleChange("contactPerson", event.target.value)
+              }
+              disabled={saving}
+              autoComplete="name"
+              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-gray-50 sm:h-11 sm:px-4"
             />
           </div>
 
@@ -366,8 +483,10 @@ export default function EditClient() {
               type="text"
               inputMode="tel"
               value={client.phone}
-              onChange={(e) => handleChange("phone", e.target.value)}
-              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 sm:h-11 sm:px-4"
+              onChange={(event) => handleChange("phone", event.target.value)}
+              disabled={saving}
+              autoComplete="tel"
+              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-gray-50 sm:h-11 sm:px-4"
             />
           </div>
 
@@ -387,8 +506,10 @@ export default function EditClient() {
               id="client-email"
               type="email"
               value={client.email}
-              onChange={(e) => handleChange("email", e.target.value)}
-              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 sm:h-11 sm:px-4"
+              onChange={(event) => handleChange("email", event.target.value)}
+              disabled={saving}
+              autoComplete="email"
+              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-gray-50 sm:h-11 sm:px-4"
             />
           </div>
 
@@ -408,8 +529,10 @@ export default function EditClient() {
               id="client-address"
               rows={3}
               value={client.address}
-              onChange={(e) => handleChange("address", e.target.value)}
-              className="min-h-[88px] w-full min-w-0 resize-y rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 sm:px-4"
+              onChange={(event) => handleChange("address", event.target.value)}
+              disabled={saving}
+              autoComplete="street-address"
+              className="min-h-[88px] w-full min-w-0 resize-y rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-gray-50 sm:px-4"
             />
           </div>
 
@@ -429,11 +552,13 @@ export default function EditClient() {
               id="gst-number"
               type="text"
               value={client.gst}
-              onChange={(e) =>
-                handleChange("gst", e.target.value.toUpperCase())
+              onChange={(event) =>
+                handleChange("gst", event.target.value.toUpperCase())
               }
+              disabled={saving}
               placeholder="ENTER GST NUMBER"
-              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm uppercase outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 sm:h-11 sm:px-4"
+              autoComplete="off"
+              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm uppercase outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-gray-50 sm:h-11 sm:px-4"
             />
           </div>
 
@@ -452,8 +577,9 @@ export default function EditClient() {
             <select
               id="client-status"
               value={client.status}
-              onChange={(e) => handleChange("status", e.target.value)}
-              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 bg-white px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 sm:h-11 sm:px-4"
+              onChange={(event) => handleChange("status", event.target.value)}
+              disabled={saving}
+              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 bg-white px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-gray-50 sm:h-11 sm:px-4"
             >
               <option value="Active">Active</option>
 
@@ -479,9 +605,10 @@ export default function EditClient() {
               id="client-services"
               type="text"
               value={client.services}
-              onChange={(e) => handleChange("services", e.target.value)}
+              onChange={(event) => handleChange("services", event.target.value)}
+              disabled={saving}
               placeholder="Example: Website + Hosting"
-              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 sm:h-11 sm:px-4"
+              className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-gray-50 sm:h-11 sm:px-4"
             />
           </div>
         </div>
@@ -503,7 +630,7 @@ export default function EditClient() {
           <button
             type="button"
             disabled={saving}
-            onClick={handleSave}
+            onClick={() => void handleSave()}
             className="inline-flex min-h-10 w-full items-center justify-center rounded-lg bg-green-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             {saving ? "Saving..." : "Save Changes"}

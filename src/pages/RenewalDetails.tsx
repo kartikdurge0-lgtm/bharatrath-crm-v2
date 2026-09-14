@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
-  completeRenewal,
-  getRenewal,
+  archiveRenewal,
+  completeRenewalInSupabase,
+  getRenewalFromSupabase,
   type Renewal,
 } from "../data/renewalStore";
 
@@ -34,48 +35,76 @@ export default function RenewalDetails() {
 
   const [paymentRefresh, setPaymentRefresh] = useState(0);
 
-  /* --------------------------------
-     Load Renewal
-  -------------------------------- */
+  const [archiving, setArchiving] = useState(false);
+
+  /* =========================================================
+     LOAD RENEWAL
+  ========================================================= */
 
   useEffect(() => {
     if (!renewalId) {
       return;
     }
 
-    const existing = getRenewal(renewalId);
+    let mounted = true;
 
-    setRenewal(existing);
+    const loadData = async () => {
+      try {
+        const existing = await getRenewalFromSupabase(renewalId);
 
-    if (existing) {
-      const invoice = getInvoiceByRenewalId(existing.id);
+        if (!mounted) {
+          return;
+        }
 
-      setGeneratedInvoice(invoice);
-    }
+        setRenewal(existing);
+
+        if (existing) {
+          const invoice = await getInvoiceByRenewalId(existing.id);
+
+          if (mounted) {
+            setGeneratedInvoice(invoice);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load renewal:", error);
+
+        if (mounted) {
+          setRenewal(null);
+        }
+      }
+    };
+
+    void loadData();
+
+    return () => {
+      mounted = false;
+    };
   }, [renewalId]);
 
-  /* --------------------------------
-     Refresh generated invoice
-     after payment
-  -------------------------------- */
+  /* =========================================================
+     REFRESH GENERATED INVOICE
+  ========================================================= */
 
-  const refreshInvoice = () => {
+  const refreshInvoice = async () => {
     if (!renewal) {
       return;
     }
 
-    const invoice = getInvoiceByRenewalId(renewal.id);
+    try {
+      const invoice = await getInvoiceByRenewalId(renewal.id);
 
-    setGeneratedInvoice(invoice);
-
-    setPaymentRefresh((value) => value + 1);
+      setGeneratedInvoice(invoice);
+      setPaymentRefresh((value) => value + 1);
+    } catch (error) {
+      console.error("Failed to refresh invoice:", error);
+    }
   };
 
-  /* --------------------------------
-     Complete Renewal
-  -------------------------------- */
+  /* =========================================================
+     COMPLETE RENEWAL
+  ========================================================= */
 
-  const handleComplete = () => {
+  const handleComplete = async () => {
     if (!renewal) {
       return;
     }
@@ -88,40 +117,41 @@ export default function RenewalDetails() {
       return;
     }
 
-    const updated = completeRenewal(renewal.id);
+    try {
+      const updated = await completeRenewalInSupabase(renewal.id);
 
-    if (updated) {
-      setRenewal(updated);
+      if (updated) {
+        setRenewal(updated);
+      } else {
+        window.alert("Renewal could not be completed.");
+      }
+    } catch (error) {
+      console.error("Failed to complete renewal:", error);
+
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to complete renewal. Please try again.",
+      );
     }
   };
 
-  /* --------------------------------
-     Generate Invoice
-     
+  /* =========================================================
+     ARCHIVE RENEWAL
+     ---------------------------------------------------------
      IMPORTANT:
-     createInvoice() is the source of truth
-     for final invoice numbering.
-  -------------------------------- */
+     No permanent delete.
+     Archive only.
+  ========================================================= */
 
-  const handleGenerateInvoice = () => {
+  const handleArchive = async () => {
     if (!renewal) {
       return;
     }
 
-    const existingInvoice = getInvoiceByRenewalId(renewal.id);
-
-    if (existingInvoice) {
-      setGeneratedInvoice(existingInvoice);
-
-      window.alert(`Invoice already exists: ${existingInvoice.invoiceNumber}`);
-
-      return;
-    }
-
     const confirmed = window.confirm(
-      `Generate invoice for "${renewal.service}" renewal of "${renewal.clientName}" for ₹${renewal.amount.toLocaleString(
-        "en-IN",
-      )}?`,
+      `Archive "${renewal.service}" renewal for "${renewal.clientName}"?\n\n` +
+        `The renewal will be removed from active renewals but will remain available in Archived Renewals.`,
     );
 
     if (!confirmed) {
@@ -129,6 +159,66 @@ export default function RenewalDetails() {
     }
 
     try {
+      setArchiving(true);
+
+      const success = await archiveRenewal(renewal.id);
+
+      if (!success) {
+        window.alert("Renewal could not be archived.");
+        return;
+      }
+
+      window.alert("Renewal archived successfully.");
+
+      navigate("/renewals");
+    } catch (error) {
+      console.error("Failed to archive renewal:", error);
+
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to archive renewal. Please try again.",
+      );
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  /* =========================================================
+     GENERATE INVOICE
+     IMPORTANT:
+     createInvoice() is the source of truth
+     for final invoice numbering.
+  ========================================================= */
+
+  const handleGenerateInvoice = async () => {
+    if (!renewal) {
+      return;
+    }
+
+    try {
+      const existingInvoice = await getInvoiceByRenewalId(renewal.id);
+
+      if (existingInvoice) {
+        setGeneratedInvoice(existingInvoice);
+
+        window.alert(
+          `Invoice already exists: ${existingInvoice.invoiceNumber}`,
+        );
+
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `Generate invoice for "${renewal.service}" renewal of "${renewal.clientName}" for ₹${renewal.amount.toLocaleString(
+          "en-IN",
+        )}?`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
       setGeneratingInvoice(true);
 
       const invoiceSettings = getInvoiceSettings();
@@ -145,7 +235,7 @@ export default function RenewalDetails() {
        * the renewal invoice serial here.
        */
 
-      const invoice = createInvoice({
+      const invoice = await createInvoice({
         clientId: renewal.clientId,
 
         clientName: renewal.clientName,
@@ -197,9 +287,9 @@ export default function RenewalDetails() {
     }
   };
 
-  /* --------------------------------
-     Date formatter
-  -------------------------------- */
+  /* =========================================================
+     DATE FORMATTER
+  ========================================================= */
 
   const formatDate = (date: string) => {
     if (!date) {
@@ -219,9 +309,9 @@ export default function RenewalDetails() {
     });
   };
 
-  /* --------------------------------
-     Not Found
-  -------------------------------- */
+  /* =========================================================
+     NOT FOUND
+  ========================================================= */
 
   if (!renewal) {
     return (
@@ -255,9 +345,9 @@ export default function RenewalDetails() {
     );
   }
 
-  /* --------------------------------
-     Payment Summary
-  -------------------------------- */
+  /* =========================================================
+     PAYMENT SUMMARY
+  ========================================================= */
 
   /*
    * paymentRefresh intentionally forces
@@ -289,9 +379,9 @@ export default function RenewalDetails() {
           ? "bg-red-50 text-red-700"
           : "bg-slate-100 text-slate-700";
 
-  /* --------------------------------
-     Renewal Status
-  -------------------------------- */
+  /* =========================================================
+     RENEWAL STATUS
+  ========================================================= */
 
   const statusClass =
     renewal.status === "Upcoming"
@@ -304,9 +394,9 @@ export default function RenewalDetails() {
 
   return (
     <div className="mx-auto w-full max-w-[1800px] min-w-0 space-y-4 sm:space-y-6">
-      {/* --------------------------------
-          Header
-      -------------------------------- */}
+      {/* =====================================================
+          HEADER
+      ===================================================== */}
 
       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
@@ -326,9 +416,9 @@ export default function RenewalDetails() {
         </button>
       </div>
 
-      {/* --------------------------------
-          Main Information
-      -------------------------------- */}
+      {/* =====================================================
+          MAIN INFORMATION
+      ===================================================== */}
 
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
         {/* Renewal Information */}
@@ -363,6 +453,20 @@ export default function RenewalDetails() {
             />
 
             <Info label="CREATED ON" value={formatDate(renewal.createdAt)} />
+
+            {renewal.reminderDays !== undefined && (
+              <Info
+                label="REMINDER"
+                value={`${renewal.reminderDays} days before`}
+              />
+            )}
+
+            {renewal.completedAt && (
+              <Info
+                label="COMPLETED ON"
+                value={formatDate(renewal.completedAt)}
+              />
+            )}
           </div>
         </div>
 
@@ -407,13 +511,25 @@ export default function RenewalDetails() {
                 ₹{renewal.amount.toLocaleString("en-IN")}
               </p>
             </div>
+
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                Payment Status
+              </p>
+
+              <span
+                className={`mt-3 inline-flex rounded-full px-3 py-1.5 text-sm font-medium ${paymentStatusClass}`}
+              >
+                {paymentStatus}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* --------------------------------
-          Generated Invoice
-      -------------------------------- */}
+      {/* =====================================================
+          GENERATED INVOICE
+      ===================================================== */}
 
       {generatedInvoice && (
         <>
@@ -461,9 +577,9 @@ export default function RenewalDetails() {
             </div>
           </div>
 
-          {/* --------------------------------
-              Payment Summary
-          -------------------------------- */}
+          {/* =================================================
+              PAYMENT SUMMARY
+          ================================================= */}
 
           {paymentSummary && (
             <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -544,9 +660,9 @@ export default function RenewalDetails() {
         </>
       )}
 
-      {/* --------------------------------
-          Notes
-      -------------------------------- */}
+      {/* =====================================================
+          NOTES
+      ===================================================== */}
 
       <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-4 py-4 sm:px-6 sm:py-5">
@@ -564,9 +680,9 @@ export default function RenewalDetails() {
         </div>
       </div>
 
-      {/* --------------------------------
-          Actions
-      -------------------------------- */}
+      {/* =====================================================
+          ACTIONS
+      ===================================================== */}
 
       <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-4 py-4 sm:px-6 sm:py-5">
@@ -576,6 +692,8 @@ export default function RenewalDetails() {
         </div>
 
         <div className="flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:p-6">
+          {/* Edit */}
+
           <button
             type="button"
             onClick={() => navigate(`/renewals/${renewal.id}/edit`)}
@@ -583,6 +701,8 @@ export default function RenewalDetails() {
           >
             Edit Renewal
           </button>
+
+          {/* Generate Invoice */}
 
           {!generatedInvoice && (
             <button
@@ -598,6 +718,8 @@ export default function RenewalDetails() {
               {generatingInvoice ? "Generating..." : "🧾 Generate Invoice"}
             </button>
           )}
+
+          {/* Complete */}
 
           {renewal.status !== "Completed" ? (
             <button
@@ -617,6 +739,23 @@ export default function RenewalDetails() {
             </button>
           )}
 
+          {/* Archive */}
+
+          <button
+            type="button"
+            onClick={handleArchive}
+            disabled={archiving}
+            className={`w-full rounded-lg px-5 py-2.5 text-sm font-semibold sm:w-auto ${
+              archiving
+                ? "cursor-not-allowed bg-slate-300 text-slate-500"
+                : "border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+            }`}
+          >
+            {archiving ? "Archiving..." : "Archive Renewal"}
+          </button>
+
+          {/* Back */}
+
           <button
             type="button"
             onClick={() => navigate("/renewals")}
@@ -627,9 +766,9 @@ export default function RenewalDetails() {
         </div>
       </div>
 
-      {/* --------------------------------
-          Add Payment Modal
-      -------------------------------- */}
+      {/* =====================================================
+          ADD PAYMENT MODAL
+      ===================================================== */}
 
       {showPaymentModal && generatedInvoice && (
         <AddPaymentModal
@@ -642,9 +781,9 @@ export default function RenewalDetails() {
   );
 }
 
-/* --------------------------------
-   Due Date Helper
--------------------------------- */
+/* =========================================================
+   DUE DATE HELPER
+========================================================= */
 
 function getDueDate(paymentTerms: number): string {
   const days = Number(paymentTerms) || 0;
@@ -656,9 +795,9 @@ function getDueDate(paymentTerms: number): string {
   return date.toISOString().split("T")[0];
 }
 
-/* --------------------------------
-   Info Component
--------------------------------- */
+/* =========================================================
+   INFO COMPONENT
+========================================================= */
 
 function Info({
   label,

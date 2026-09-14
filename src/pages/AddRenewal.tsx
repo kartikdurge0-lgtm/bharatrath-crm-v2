@@ -1,68 +1,109 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
-  addRenewal,
-  generateRenewalId,
+  addRenewalToSupabase,
+  generateRenewalIdFromSupabase,
   type Renewal,
 } from "../data/renewalStore";
 
-import { getClients, type Client } from "../data/clientStore";
+import { getActiveClientsFromSupabase, type Client } from "../data/clientStore";
+
 import { getServices } from "../data/serviceStore";
+
 import SearchableClientSelect from "../components/SearchableClientSelect";
 
 export default function AddRenewal() {
   const navigate = useNavigate();
 
-  /* --------------------------------
-     Clients
-  -------------------------------- */
-
   const [clients, setClients] = useState<Client[]>([]);
 
-  /* --------------------------------
-     Services
-  -------------------------------- */
-
-  const [services, setServices] = useState<ReturnType<typeof getServices>>([]);
-
-  /* --------------------------------
-     Form
-  -------------------------------- */
+  const [services, setServices] = useState<
+    Awaited<ReturnType<typeof getServices>>
+  >([]);
 
   const [form, setForm] = useState({
     clientId: "",
     service: "",
+    serviceId: "",
     renewalDate: "",
     amount: "",
     notes: "",
   });
 
-  /* --------------------------------
-     Load Clients & Services
-  -------------------------------- */
+  const [saving, setSaving] = useState(false);
+
+  /* =====================================================
+     LOAD CLIENTS + SERVICES
+  ===================================================== */
 
   useEffect(() => {
-    const loadedClients = getClients().filter((client) => !client.archived);
+    let mounted = true;
 
-    setClients(loadedClients);
+    const loadData = async () => {
+      try {
+        const [loadedClients, loadedServices] = await Promise.all([
+          getActiveClientsFromSupabase(),
+          getServices(),
+        ]);
 
-    const loadedServices = getServices().filter(
-      (service) => service.status === "Active",
-    );
+        if (!mounted) {
+          return;
+        }
 
-    setServices(loadedServices);
+        setClients(loadedClients);
+
+        setServices(
+          loadedServices.filter((service) => service.status === "Active"),
+        );
+      } catch (error) {
+        console.error("Failed to load renewal data:", error);
+
+        if (mounted) {
+          setClients([]);
+          setServices([]);
+        }
+      }
+    };
+
+    void loadData();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  /* --------------------------------
-     Selected Client
-  -------------------------------- */
+  /* =====================================================
+     SELECTED CLIENT
+  ===================================================== */
 
-  const selectedClient = clients.find((client) => client.id === form.clientId);
+  const selectedClient = useMemo(() => {
+    return clients.find(
+      (client) => String(client.id) === String(form.clientId),
+    );
+  }, [clients, form.clientId]);
 
-  /* --------------------------------
-     Update Form Field
-  -------------------------------- */
+  /* =====================================================
+     SELECTED SERVICE
+  ===================================================== */
+
+  const selectedService = useMemo(() => {
+    return services.find(
+      (service) => String(service.id) === String(form.serviceId),
+    );
+  }, [services, form.serviceId]);
+
+  /* =====================================================
+     HELPERS
+  ===================================================== */
+
+  const getServiceName = (service: (typeof services)[number]): string => {
+    return service.service_name || service.serviceName || "";
+  };
+
+  const getServicePrice = (service: (typeof services)[number]): number => {
+    return Number(service.default_price ?? service.defaultPrice ?? 0);
+  };
 
   const updateField = (field: keyof typeof form, value: string) => {
     setForm((current) => ({
@@ -71,9 +112,9 @@ export default function AddRenewal() {
     }));
   };
 
-  /* --------------------------------
-     Get Initial Renewal Status
-  -------------------------------- */
+  /* =====================================================
+     STATUS
+  ===================================================== */
 
   const getInitialStatus = (date: string): Renewal["status"] => {
     if (!date) {
@@ -103,13 +144,50 @@ export default function AddRenewal() {
     return "Upcoming";
   };
 
-  /* --------------------------------
-     Submit
-  -------------------------------- */
+  /* =====================================================
+     SERVICE CHANGE
+  ===================================================== */
 
-  const handleSubmit = () => {
+  const handleServiceChange = (serviceCode: string) => {
+    const service = services.find((item) => String(item.id) === serviceCode);
+
+    if (!service) {
+      setForm((current) => ({
+        ...current,
+        service: "",
+        serviceId: "",
+        amount: "",
+      }));
+
+      return;
+    }
+
+    const serviceName = getServiceName(service);
+
+    setForm((current) => ({
+      ...current,
+      service: serviceName,
+      serviceId: String(service.id),
+      amount: String(getServicePrice(service)),
+    }));
+  };
+
+  /* =====================================================
+     SUBMIT
+  ===================================================== */
+
+  const handleSubmit = async () => {
+    if (saving) {
+      return;
+    }
+
     if (!form.clientId) {
       window.alert("Please select a client.");
+      return;
+    }
+
+    if (!form.serviceId) {
+      window.alert("Please select a service.");
       return;
     }
 
@@ -135,47 +213,70 @@ export default function AddRenewal() {
       return;
     }
 
-    /* --------------------------------
-       Create Renewal
-    -------------------------------- */
+    try {
+      setSaving(true);
 
-    const newRenewal: Renewal = {
-      id: generateRenewalId(),
+      /*
+       * Preview only.
+       * Supabase database ID remains authoritative.
+       */
+      const previewId = await generateRenewalIdFromSupabase();
 
-      clientId: form.clientId,
+      const newRenewal: Renewal = {
+        id: previewId,
 
-      clientName: selectedClient?.company || "Unknown Client",
+        clientId: form.clientId,
 
-      service: form.service.trim(),
+        clientName: selectedClient?.company || "Unknown Client",
 
-      renewalDate: form.renewalDate,
+        service: form.service.trim(),
 
-      amount,
+        /*
+         * This is the service CODE, e.g. SRV-001.
+         * renewalStore will resolve it to the numeric
+         * services.id before inserting into renewals.
+         */
+        serviceId: form.serviceId,
 
-      status: getInitialStatus(form.renewalDate),
+        renewalDate: form.renewalDate,
 
-      notes: form.notes.trim(),
+        amount,
 
-      createdAt: new Date().toISOString(),
-    };
+        status: getInitialStatus(form.renewalDate),
 
-    /* --------------------------------
-       Save Renewal
-    -------------------------------- */
+        paymentStatus: "Pending",
 
-    addRenewal(newRenewal);
+        notes: form.notes.trim(),
 
-    window.alert("Renewal added successfully.");
+        createdAt: new Date().toISOString(),
 
-    navigate(`/renewals/${newRenewal.id}`);
+        isArchived: false,
+      };
+
+      const createdRenewal = await addRenewalToSupabase(newRenewal);
+
+      window.alert("Renewal added successfully.");
+
+      navigate(`/renewals/${createdRenewal.id}`);
+    } catch (error) {
+      console.error("Failed to add renewal:", error);
+
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to add renewal. Please try again.",
+      );
+    } finally {
+      setSaving(false);
+    }
   };
+
+  /* =====================================================
+     UI
+  ===================================================== */
 
   return (
     <div className="mx-auto w-full max-w-[1200px] min-w-0 space-y-4 sm:space-y-6">
-      {/* --------------------------------
-          Header
-      -------------------------------- */}
-
       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-2xl font-bold text-slate-900">Add Renewal</h2>
@@ -194,13 +295,7 @@ export default function AddRenewal() {
         </button>
       </div>
 
-      {/* --------------------------------
-          Form Card
-      -------------------------------- */}
-
       <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        {/* Card Header */}
-
         <div className="border-b border-slate-200 px-4 py-4 sm:px-6 sm:py-5">
           <h3 className="text-lg font-semibold text-slate-900">
             Renewal Information
@@ -211,12 +306,8 @@ export default function AddRenewal() {
           </p>
         </div>
 
-        {/* Fields */}
-
         <div className="grid min-w-0 grid-cols-1 gap-5 p-4 sm:p-6 md:grid-cols-2">
-          {/* --------------------------------
-              Client
-          -------------------------------- */}
+          {/* CLIENT */}
 
           <div className="min-w-0">
             <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -237,9 +328,7 @@ export default function AddRenewal() {
             )}
           </div>
 
-          {/* --------------------------------
-              Service
-          -------------------------------- */}
+          {/* SERVICE */}
 
           <div className="min-w-0">
             <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -247,29 +336,21 @@ export default function AddRenewal() {
             </label>
 
             <select
-              value={form.service}
-              onChange={(e) => {
-                const selectedService = services.find(
-                  (service) => service.service_name === e.target.value,
-                );
-
-                updateField("service", e.target.value);
-
-                if (selectedService) {
-                  updateField("amount", String(selectedService.default_price));
-                }
-              }}
+              value={form.serviceId}
+              onChange={(event) => handleServiceChange(event.target.value)}
               className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100"
             >
               <option value="">Select service</option>
 
-              {services
-                .filter((service) => service.status === "Active")
-                .map((service) => (
-                  <option key={service.id} value={service.service_name}>
-                    {service.service_name}
+              {services.map((service) => {
+                const serviceName = getServiceName(service);
+
+                return (
+                  <option key={String(service.id)} value={String(service.id)}>
+                    {serviceName}
                   </option>
-                ))}
+                );
+              })}
             </select>
 
             {services.length === 0 && (
@@ -277,11 +358,16 @@ export default function AddRenewal() {
                 No services available. Add a service first.
               </p>
             )}
+
+            {selectedService && (
+              <p className="mt-2 text-xs text-slate-500">
+                Service ID:{" "}
+                <span className="font-medium">{selectedService.id}</span>
+              </p>
+            )}
           </div>
 
-          {/* --------------------------------
-              Renewal Date
-          -------------------------------- */}
+          {/* DATE */}
 
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -291,14 +377,14 @@ export default function AddRenewal() {
             <input
               type="date"
               value={form.renewalDate}
-              onChange={(e) => updateField("renewalDate", e.target.value)}
+              onChange={(event) =>
+                updateField("renewalDate", event.target.value)
+              }
               className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100"
             />
           </div>
 
-          {/* --------------------------------
-              Renewal Amount
-          -------------------------------- */}
+          {/* AMOUNT */}
 
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -314,16 +400,14 @@ export default function AddRenewal() {
                 type="number"
                 min="0"
                 value={form.amount}
-                onChange={(e) => updateField("amount", e.target.value)}
+                onChange={(event) => updateField("amount", event.target.value)}
                 placeholder="0"
                 className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 pl-9 text-sm text-slate-900 outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100"
               />
             </div>
           </div>
 
-          {/* --------------------------------
-              Notes
-          -------------------------------- */}
+          {/* NOTES */}
 
           <div className="min-w-0 md:col-span-2">
             <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -332,7 +416,7 @@ export default function AddRenewal() {
 
             <textarea
               value={form.notes}
-              onChange={(e) => updateField("notes", e.target.value)}
+              onChange={(event) => updateField("notes", event.target.value)}
               rows={4}
               placeholder="Add any renewal notes..."
               className="w-full resize-y rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100"
@@ -340,9 +424,7 @@ export default function AddRenewal() {
           </div>
         </div>
 
-        {/* --------------------------------
-            Renewal Status Preview
-        -------------------------------- */}
+        {/* STATUS PREVIEW */}
 
         {form.clientId && form.renewalDate && (
           <div className="mx-4 mb-5 rounded-lg border border-green-100 bg-green-50 p-4 sm:mx-6 sm:mb-6">
@@ -363,18 +445,12 @@ export default function AddRenewal() {
                 {getInitialStatus(form.renewalDate)}
               </span>
 
-              <span
-                title={selectedClient?.company}
-                className="max-w-full truncate text-sm text-slate-600"
-              >
+              <span className="max-w-full truncate text-sm text-slate-600">
                 {selectedClient?.company}
               </span>
 
               {form.service && (
-                <span
-                  title={form.service}
-                  className="max-w-full truncate text-sm text-slate-500"
-                >
+                <span className="max-w-full truncate text-sm text-slate-500">
                   · {form.service}
                 </span>
               )}
@@ -382,25 +458,25 @@ export default function AddRenewal() {
           </div>
         )}
 
-        {/* --------------------------------
-            Footer
-        -------------------------------- */}
+        {/* FOOTER */}
 
         <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-6">
           <button
             type="button"
+            disabled={saving}
             onClick={() => navigate("/renewals")}
-            className="w-full rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
+            className="w-full rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             Cancel
           </button>
 
           <button
             type="button"
+            disabled={saving}
             onClick={handleSubmit}
-            className="w-full rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
+            className="w-full rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
-            Save Renewal
+            {saving ? "Saving..." : "Save Renewal"}
           </button>
         </div>
       </div>

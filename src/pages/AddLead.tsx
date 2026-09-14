@@ -96,7 +96,9 @@ export default function AddLead() {
     Awaited<ReturnType<typeof getInternalTeamMembers>>
   >([]);
 
-  const services = getServices();
+  const [services, setServices] = useState<
+    Awaited<ReturnType<typeof getServices>>
+  >([]);
 
   const [form, setForm] = useState({
     companyName: "",
@@ -157,6 +159,36 @@ export default function AddLead() {
     };
 
     loadSalesPersons();
+  }, []);
+
+  /* ===================================================
+   LOAD SERVICES
+=================================================== */
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadServices = async () => {
+      try {
+        const loadedServices = await getServices();
+
+        if (mounted) {
+          setServices(loadedServices);
+        }
+      } catch (err) {
+        console.error("Failed to load services:", err);
+
+        if (mounted) {
+          setError("Failed to load services. Please refresh the page.");
+        }
+      }
+    };
+
+    void loadServices();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   /* ===================================================

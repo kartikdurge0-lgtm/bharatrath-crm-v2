@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { getRenewal, updateRenewal, type Renewal } from "../data/renewalStore";
+import {
+  getRenewalFromSupabase,
+  updateRenewalInSupabase,
+  type Renewal,
+} from "../data/renewalStore";
 
-import { getClients, type Client } from "../data/clientStore";
+import { getActiveClientsFromSupabase, type Client } from "../data/clientStore";
+
+import { getServices } from "../data/serviceStore";
 
 import SearchableClientSelect from "../components/SearchableClientSelect";
 
@@ -12,11 +18,16 @@ export default function EditRenewal() {
   const { renewalId } = useParams();
 
   const [clients, setClients] = useState<Client[]>([]);
+  const [services, setServices] = useState<
+    Awaited<ReturnType<typeof getServices>>
+  >([]);
   const [renewal, setRenewal] = useState<Renewal | null>(null);
+  const [loadError, setLoadError] = useState("");
 
   const [form, setForm] = useState({
     clientId: "",
     service: "",
+    serviceId: "",
     renewalDate: "",
     amount: "",
     notes: "",
@@ -34,25 +45,62 @@ export default function EditRenewal() {
       return;
     }
 
-    const existingRenewal = getRenewal(renewalId);
+    let mounted = true;
 
-    const existingClients = getClients().filter((client) => !client.archived);
+    const loadData = async () => {
+      try {
+        setLoadError("");
 
-    setClients(existingClients);
+        const [existingRenewal, existingClients, loadedServices] =
+          await Promise.all([
+            getRenewalFromSupabase(renewalId),
+            getActiveClientsFromSupabase(),
+            getServices(),
+          ]);
 
-    if (existingRenewal) {
-      setRenewal(existingRenewal);
+        if (!mounted) {
+          return;
+        }
 
-      setForm({
-        clientId: existingRenewal.clientId,
-        service: existingRenewal.service,
-        renewalDate: existingRenewal.renewalDate,
-        amount: String(existingRenewal.amount),
-        notes: existingRenewal.notes || "",
-      });
-    }
+        setClients(existingClients);
+        setServices(
+          loadedServices.filter((service) => service.status === "Active"),
+        );
 
-    setLoading(false);
+        if (existingRenewal) {
+          setRenewal(existingRenewal);
+
+          setForm({
+            clientId: existingRenewal.clientId,
+            service: existingRenewal.service,
+            serviceId: existingRenewal.serviceId || "",
+            renewalDate: existingRenewal.renewalDate,
+            amount: String(existingRenewal.amount),
+            notes: existingRenewal.notes || "",
+          });
+        }
+      } catch (error) {
+        console.error("Failed to load renewal:", error);
+
+        if (mounted) {
+          setLoadError(
+            error instanceof Error
+              ? error.message
+              : "Failed to load renewal. Please try again.",
+          );
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadData();
+
+    return () => {
+      mounted = false;
+    };
   }, [renewalId]);
 
   /* --------------------------------
@@ -109,7 +157,7 @@ export default function EditRenewal() {
      Save Changes
   -------------------------------- */
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!renewalId) {
       return;
     }
@@ -145,33 +193,48 @@ export default function EditRenewal() {
       (client) => client.id === form.clientId,
     );
 
-    const updated = updateRenewal(renewalId, {
-      clientId: form.clientId,
+    try {
+      const updated = await updateRenewalInSupabase(renewalId, {
+        clientId: form.clientId,
 
-      clientName:
-        selectedClient?.company || renewal?.clientName || "Unknown Client",
+        clientName:
+          selectedClient?.company || renewal?.clientName || "Unknown Client",
 
-      service: form.service.trim(),
+        service: form.service.trim(),
 
-      renewalDate: form.renewalDate,
+        serviceId: form.serviceId || renewal?.serviceId,
 
-      amount,
+        renewalDate: form.renewalDate,
 
-      status: getStatus(form.renewalDate),
+        amount,
 
-      notes: form.notes.trim(),
-    });
+        /*
+         * Store recalculates the effective status.
+         * We do not persist a page-calculated status.
+         */
 
-    if (!updated) {
-      window.alert("Renewal could not be updated.");
-      return;
+        notes: form.notes.trim(),
+      });
+
+      if (!updated) {
+        window.alert("Renewal could not be updated.");
+        return;
+      }
+
+      setRenewal(updated);
+
+      window.alert("Renewal updated successfully.");
+
+      navigate(`/renewals/${updated.id}`);
+    } catch (error) {
+      console.error("Failed to update renewal:", error);
+
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to update renewal. Please try again.",
+      );
     }
-
-    setRenewal(updated);
-
-    window.alert("Renewal updated successfully.");
-
-    navigate(`/renewals/${updated.id}`);
   };
 
   /* --------------------------------
@@ -183,6 +246,40 @@ export default function EditRenewal() {
       <div className="mx-auto w-full max-w-[1200px]">
         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm sm:p-10">
           <p className="text-sm text-slate-500">Loading renewal...</p>
+        </div>
+      </div>
+    );
+  }
+
+  /* --------------------------------
+     Load Error
+  -------------------------------- */
+
+  if (loadError) {
+    return (
+      <div className="mx-auto w-full max-w-[1200px] min-w-0 space-y-4 sm:space-y-6">
+        <div className="min-w-0">
+          <h2 className="text-2xl font-bold text-slate-900">
+            Unable to Load Renewal
+          </h2>
+          <p className="mt-1 text-sm text-red-600">{loadError}</p>
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <button
+            type="button"
+            onClick={() => navigate("/renewals")}
+            className="w-full rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
+          >
+            ← Back to Renewals
+          </button>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="w-full rounded-lg bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
+          >
+            Try Again
+          </button>
         </div>
       </div>
     );
@@ -305,13 +402,45 @@ export default function EditRenewal() {
               Service *
             </label>
 
-            <input
-              type="text"
-              value={form.service}
-              onChange={(e) => updateField("service", e.target.value)}
-              placeholder="e.g. Website Hosting"
-              className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-green-600 focus:ring-2 focus:ring-green-100"
-            />
+            <select
+              value={form.serviceId}
+              onChange={(e) => {
+                const selectedService = services.find(
+                  (service) => String(service.id) === e.target.value,
+                );
+
+                if (!selectedService) {
+                  updateField("serviceId", "");
+                  return;
+                }
+
+                updateField("serviceId", String(selectedService.id));
+                updateField("service", selectedService.service_name);
+              }}
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-green-600 focus:ring-2 focus:ring-green-100"
+            >
+              <option value="">Select service</option>
+
+              {renewal?.serviceId &&
+                renewal.service &&
+                !services.some(
+                  (service) => String(service.id) === String(renewal.serviceId),
+                ) && (
+                  <option value={renewal.serviceId}>{renewal.service}</option>
+                )}
+
+              {services.map((service) => (
+                <option key={service.id} value={String(service.id)}>
+                  {service.service_name}
+                </option>
+              ))}
+            </select>
+
+            {services.length === 0 && (
+              <p className="mt-2 text-xs text-slate-500">
+                No active services available.
+              </p>
+            )}
           </div>
 
           {/* Renewal Date */}

@@ -63,20 +63,21 @@ export default function AddFollowUp() {
   const [leads, setLeads] = useState<Awaited<ReturnType<typeof getLeads>>>([]);
 
   /* =======================================================
-     LOCAL RECORDS
-     
-     IMPORTANT:
-     These are loaded once.
-     We do NOT call getClients(), getQuotations(),
-     getRenewals() directly during every render.
-     
-     This prevents relatedRecords from changing on
-     every render and causing useEffect loops.
+     RELATED RECORDS
+
+     Clients and renewals are currently synchronous store
+     reads, while quotations are now Supabase-backed and
+     therefore asynchronous.
+
+     Keep all arrays in React state so relatedRecords always
+     receives stable values and never gets a Promise.
   ======================================================= */
 
   const [clients] = useState(() => getClients());
 
-  const [quotations] = useState(() => getQuotations());
+  const [quotations, setQuotations] = useState<
+    Awaited<ReturnType<typeof getQuotations>>
+  >([]);
 
   const [renewals] = useState(() => getRenewals());
 
@@ -150,6 +151,41 @@ export default function AddFollowUp() {
     }
 
     void loadLeads();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  /* =======================================================
+     LOAD QUOTATIONS
+
+     quotationStore is now Supabase-backed, so getQuotations()
+     returns a Promise.
+  ======================================================= */
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadQuotations() {
+      try {
+        const data = await getQuotations();
+
+        if (!mounted) {
+          return;
+        }
+
+        setQuotations(data);
+      } catch (error) {
+        console.error("Failed to load quotations:", error);
+
+        if (mounted) {
+          setError("Failed to load quotations.");
+        }
+      }
+    }
+
+    void loadQuotations();
 
     return () => {
       mounted = false;
@@ -255,6 +291,7 @@ export default function AddFollowUp() {
           name:
             quotationRecord.clientName ||
             quotationRecord.companyName ||
+            quotation.quotationNumber ||
             quotation.id,
 
           contactPerson: quotationRecord.contactPerson || "",
@@ -296,7 +333,7 @@ export default function AddFollowUp() {
   ======================================================= */
 
   useEffect(() => {
-    if (form.assignedTo || teamMembers.length === 0) {
+    if (teamMembers.length === 0) {
       return;
     }
 
@@ -316,7 +353,7 @@ export default function AddFollowUp() {
         assignedTo: defaultMember,
       };
     });
-  }, [form.assignedTo, teamMembers]);
+  }, [teamMembers]);
 
   /* =======================================================
      PREFILL RELATED RECORD

@@ -363,16 +363,23 @@ export default function Invoices() {
   const [currentPage, setCurrentPage] = useState(1);
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [summary, setSummary] = useState<Awaited<
+    ReturnType<typeof getInvoiceSummary>
+  > | null>(null);
 
   /* =======================================================
      LOAD INVOICES
   ======================================================= */
 
-  const loadInvoices = useCallback(() => {
+  const loadInvoices = useCallback(async () => {
     try {
-      const data = getInvoicesSorted();
+      const [data, summaryData] = await Promise.all([
+        getInvoicesSorted(),
+        getInvoiceSummary(),
+      ]);
 
       setInvoices(data);
+      setSummary(summaryData);
     } catch (error) {
       console.error("Failed to load invoices:", error);
 
@@ -381,10 +388,10 @@ export default function Invoices() {
   }, []);
 
   useEffect(() => {
-    loadInvoices();
+    void loadInvoices();
 
     const handleFocus = () => {
-      loadInvoices();
+      void loadInvoices();
     };
 
     window.addEventListener("focus", handleFocus);
@@ -463,9 +470,15 @@ export default function Invoices() {
      SUMMARY
   ======================================================= */
 
-  const summary = useMemo(() => {
-    return getInvoiceSummary();
-  }, [invoices]);
+  const summaryData = summary ?? {
+    total: 0,
+    draft: 0,
+    sent: 0,
+    accepted: 0,
+    totalValue: 0,
+    totalPaid: 0,
+    outstanding: 0,
+  };
 
   /* =======================================================
      FOOTER COUNT
@@ -525,7 +538,7 @@ export default function Invoices() {
           </div>
 
           <p className="mt-2 text-2xl font-bold text-slate-900">
-            {summary.total}
+            {summaryData.total}
           </p>
 
           <p className="mt-1 text-xs text-slate-400">Total invoices</p>
@@ -543,7 +556,7 @@ export default function Invoices() {
           </div>
 
           <p className="mt-2 text-2xl font-bold text-slate-700">
-            {summary.draft}
+            {summaryData.draft}
           </p>
 
           <p className="mt-1 text-xs text-slate-400">Not sent yet</p>
@@ -561,7 +574,7 @@ export default function Invoices() {
           </div>
 
           <p className="mt-2 text-2xl font-bold text-[#3B82F6]">
-            {summary.sent}
+            {summaryData.sent}
           </p>
 
           <p className="mt-1 text-xs text-slate-400">Sent to clients</p>
@@ -579,7 +592,7 @@ export default function Invoices() {
           </div>
 
           <p className="mt-2 text-2xl font-bold text-[#16A34A]">
-            {summary.accepted}
+            {summaryData.accepted}
           </p>
 
           <p className="mt-1 text-xs text-slate-400">Fully paid</p>
@@ -597,7 +610,7 @@ export default function Invoices() {
           </div>
 
           <p className="mt-2 break-words text-xl font-bold text-[#F59E0B]">
-            {currency(summary.outstanding)}
+            {currency(summaryData.outstanding)}
           </p>
 
           <p className="mt-1 text-xs text-slate-400">Amount pending</p>

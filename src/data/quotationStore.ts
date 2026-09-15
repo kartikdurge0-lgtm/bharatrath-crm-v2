@@ -303,6 +303,7 @@ async function resolveClientDatabaseId(
       .from("clients")
       .select("id")
       .eq("crm_client_id", clientDisplayId.trim())
+      .eq("is_archived", false)
       .maybeSingle();
 
     if (error) {
@@ -353,6 +354,7 @@ async function resolveClientDatabaseId(
       .from("clients")
       .select("id")
       .eq("id", numericId)
+      .eq("is_archived", false)
       .maybeSingle();
 
     if (error) {

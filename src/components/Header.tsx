@@ -51,6 +51,14 @@ export default function Header() {
 
       const email = user.email || "";
 
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      const role = profile?.role || "Sales";
+
       const initials = name
         .split(" ")
         .filter(Boolean)
@@ -62,7 +70,7 @@ export default function Header() {
         name,
         email,
         initials: initials || "U",
-        role: "Administrator",
+        role,
       });
     };
 
@@ -73,29 +81,7 @@ export default function Header() {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session?.user) return;
 
-      const currentUser = session.user;
-
-      const name =
-        currentUser.user_metadata?.full_name ||
-        currentUser.user_metadata?.name ||
-        currentUser.email?.split("@")[0] ||
-        "User";
-
-      const email = currentUser.email || "";
-
-      const initials = name
-        .split(" ")
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part: string) => part.charAt(0).toUpperCase())
-        .join("");
-
-      setUser({
-        name,
-        email,
-        initials: initials || "U",
-        role: "Administrator",
-      });
+      void loadUser();
     });
 
     return () => {

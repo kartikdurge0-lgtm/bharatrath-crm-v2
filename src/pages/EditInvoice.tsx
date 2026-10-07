@@ -436,9 +436,32 @@ export default function EditInvoice() {
       return;
     }
 
-    const validItems = items.filter(
-      (item) => item.serviceId && item.serviceName,
-    );
+    const validItems = items
+      .map((item) => {
+        if (item.serviceId) {
+          return item;
+        }
+
+        const matchedService = services.find(
+          (service) =>
+            String(service.serviceName || service.service_name || "")
+              .trim()
+              .toLowerCase() ===
+            String(item.serviceName || "")
+              .trim()
+              .toLowerCase(),
+        );
+
+        if (!matchedService) {
+          return item;
+        }
+
+        return {
+          ...item,
+          serviceId: String(matchedService.id),
+        };
+      })
+      .filter((item) => item.serviceName?.trim());
 
     if (validItems.length === 0) {
       setError("Please add at least one service.");

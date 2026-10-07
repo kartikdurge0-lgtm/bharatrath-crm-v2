@@ -1,54 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+
 import { getClients, type Client } from "../data/clientStore";
 import { getFollowUps, type FollowUp } from "../data/followUpStore";
+import { getActiveRenewals, type Renewal } from "../data/renewalStore";
 
-type Renewal = {
-  id: string;
-  clientId: string;
-  clientName: string;
-  service: string;
-  renewalDate: string;
-  amount: number;
-  status: "Upcoming" | "Due Soon" | "Overdue";
-};
-
-const defaultRenewals: Renewal[] = [
-  {
-    id: "REN-001",
-    clientId: "CL-001",
-    clientName: "SV enterprises pvt ltd",
-    service: "Website Hosting",
-    renewalDate: "2026-09-15",
-    amount: 3500,
-    status: "Upcoming",
-  },
-  {
-    id: "REN-002",
-    clientId: "CL-002",
-    clientName: "Housey",
-    service: "Domain",
-    renewalDate: "2026-09-05",
-    amount: 1200,
-    status: "Due Soon",
-  },
-  {
-    id: "REN-003",
-    clientId: "CL-003",
-    clientName: "Maharashtra Foods",
-    service: "Digital Marketing",
-    renewalDate: "2026-08-20",
-    amount: 5000,
-    status: "Overdue",
-  },
-];
+import {
+  getInvoicePaymentSummary,
+  getInvoicesSorted,
+  type Invoice,
+} from "../data/invoiceStore";
 
 export default function Dashboard() {
   const navigate = useNavigate();
 
   const [clients, setClients] = useState<Client[]>([]);
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
-  const [renewals, setRenewals] = useState<Renewal[]>(defaultRenewals);
+  const [renewals, setRenewals] = useState<Renewal[]>([]);
+  const [pendingPayments, setPendingPayments] = useState(0);
 
   /* =====================================================
      LOAD CRM DATA
@@ -59,46 +28,59 @@ export default function Dashboard() {
 
     const loadDashboardData = async () => {
       try {
-        const [clientData, followUpData] = await Promise.all([
-          getClients(),
-          getFollowUps(),
-        ]);
+        const [clientData, followUpData, renewalData, invoiceData] =
+          await Promise.all([
+            getClients(),
+            getFollowUps(),
+            getActiveRenewals(),
+            getInvoicesSorted(),
+          ]);
 
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
 
         setClients(clientData);
         setFollowUps(followUpData);
+        setRenewals(renewalData);
 
-        const savedRenewals = localStorage.getItem("crm-renewals");
+        /*
+         * Pending Payments = total outstanding balance
+         * across all non-cancelled invoices.
+         *
+         * Invoice payment summary calculates:
+         * grandTotal - active payments.
+         */
+        const outstanding = invoiceData
+          .filter((invoice: Invoice) => invoice.status !== "Cancelled")
+          .reduce((total, invoice) => {
+            return total + getInvoicePaymentSummary(invoice).balance;
+          }, 0);
 
-        if (savedRenewals) {
-          try {
-            const parsed: Renewal[] = JSON.parse(savedRenewals);
-
-            if (Array.isArray(parsed)) {
-              setRenewals(parsed);
-            }
-          } catch {
-            setRenewals(defaultRenewals);
-          }
-        }
+        setPendingPayments(outstanding);
       } catch (error) {
         console.error("Failed to load dashboard data:", error);
 
         if (mounted) {
           setClients([]);
           setFollowUps([]);
+          setRenewals([]);
+          setPendingPayments(0);
         }
       }
     };
 
     void loadDashboardData();
 
-    window.addEventListener("focus", loadDashboardData);
+    const handleFocus = () => {
+      void loadDashboardData();
+    };
+
+    window.addEventListener("focus", handleFocus);
 
     return () => {
       mounted = false;
-      window.removeEventListener("focus", loadDashboardData);
+      window.removeEventListener("focus", handleFocus);
     };
   }, []);
 
@@ -157,12 +139,6 @@ export default function Dashboard() {
   }, [renewals]);
 
   /* =====================================================
-     PENDING PAYMENTS
-  ===================================================== */
-
-  const pendingPayments = 42500;
-
-  /* =====================================================
      RECENT CLIENTS
   ===================================================== */
 
@@ -173,7 +149,9 @@ export default function Dashboard() {
         const getSequence = (id: string) => {
           const match = id.match(/(\d+)$/);
 
-          if (!match) return 0;
+          if (!match) {
+            return 0;
+          }
 
           const value = Number(match[1]);
 
@@ -190,7 +168,9 @@ export default function Dashboard() {
   ===================================================== */
 
   const formatDate = (date: string) => {
-    if (!date) return "-";
+    if (!date) {
+      return "-";
+    }
 
     const parsedDate = new Date(date);
 

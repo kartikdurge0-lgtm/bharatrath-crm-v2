@@ -1008,6 +1008,7 @@ async function buildInvoicePayload(
     amount: totals.subtotal,
     tax: totals.tax,
     subtotal: totals.subtotal,
+    tax_amount: totals.taxAmount,
     grand_total: totals.grandTotal,
     discount: roundMoney(
       items.reduce((sum, item) => sum + normalizeNumber(item.discount), 0),
@@ -1256,6 +1257,7 @@ export async function updateInvoice(
     updatePayload.amount = totals.subtotal;
     updatePayload.tax = totals.tax;
     updatePayload.subtotal = totals.subtotal;
+    updatePayload.tax_amount = totals.taxAmount;
     updatePayload.grand_total = totals.grandTotal;
     updatePayload.discount = roundMoney(
       preparedItems.reduce(
@@ -1270,6 +1272,7 @@ export async function updateInvoice(
 
     updatePayload.tax = totals.tax;
     updatePayload.subtotal = totals.subtotal;
+    updatePayload.tax_amount = totals.taxAmount;
     updatePayload.grand_total = totals.grandTotal;
     updatePayload.amount = totals.subtotal;
     updatePayload.balance_amount = totals.grandTotal;

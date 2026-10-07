@@ -98,7 +98,12 @@ export default function AddRenewal() {
   ===================================================== */
 
   const getServiceName = (service: (typeof services)[number]): string => {
-    return service.service_name || service.serviceName || "";
+    return (
+      service.serviceName ||
+      service.service_name ||
+      (service as { name?: string }).name ||
+      ""
+    );
   };
 
   const getServicePrice = (service: (typeof services)[number]): number => {

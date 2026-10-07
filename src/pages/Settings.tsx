@@ -17,9 +17,12 @@ import {
   type SalesPersonType,
 } from "../data/salesPersonStore";
 
+import { supabase } from "../lib/supabase";
+
 type SettingsSection =
   | "business"
   | "team"
+  | "access"
   | "invoice"
   | "quotation"
   | "payment"
@@ -71,6 +74,14 @@ type PreferenceSettings = {
   language: string;
   currency: string;
   dateFormat: string;
+};
+
+type CRMUser = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  role: string;
+  is_active: boolean;
 };
 
 const PAGE_SIZE = 6;
@@ -189,6 +200,9 @@ export default function Settings() {
   );
 
   const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
+  const [crmUsers, setCRMUsers] = useState<CRMUser[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isAdministrator, setIsAdministrator] = useState(false);
 
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [activitySearch, setActivitySearch] = useState("");
@@ -252,6 +266,7 @@ export default function Settings() {
   useEffect(() => {
     void refreshSalesPersons();
     void refreshActivityLogs();
+    void refreshCRMUsers();
   }, []);
 
   /* --------------------------------
@@ -423,6 +438,46 @@ export default function Settings() {
       console.error("Failed to deactivate sales person:", error);
 
       setMessage("Failed to deactivate Sales Person. Please try again.");
+    }
+  };
+
+  const refreshCRMUsers = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setCRMUsers([]);
+        setIsAdministrator(false);
+        return;
+      }
+
+      setCurrentUserId(user.id);
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name, email, role, is_active")
+        .order("full_name", { ascending: true });
+
+      if (error) {
+        throw error;
+      }
+
+      const users = (data ?? []) as CRMUser[];
+
+      setCRMUsers(users);
+
+      const currentProfile = users.find((item) => item.id === user.id);
+
+      setIsAdministrator(
+        currentProfile?.role === "Administrator" &&
+          currentProfile?.is_active === true,
+      );
+    } catch (error) {
+      console.error("Failed to load CRM users:", error);
+      setCRMUsers([]);
+      setIsAdministrator(false);
     }
   };
 
@@ -620,6 +675,12 @@ export default function Settings() {
       description: "Manage sales and referral persons",
     },
     {
+      key: "access",
+      label: "User Access",
+      icon: "🔐",
+      description: "Manage CRM users and roles",
+    },
+    {
       key: "invoice",
       label: "Invoice Settings",
       icon: "🧾",
@@ -704,48 +765,50 @@ export default function Settings() {
           </div>
 
           <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-1">
-            {sections.map((section) => {
-              const active = activeSection === section.key;
+            {sections
+              .filter((section) => section.key !== "access" || isAdministrator)
+              .map((section) => {
+                const active = activeSection === section.key;
 
-              return (
-                <button
-                  key={section.key}
-                  type="button"
-                  onClick={() => setActiveSection(section.key)}
-                  className={`w-full min-w-0 rounded-lg px-3 py-2.5 text-left transition ${
-                    active
-                      ? "bg-green-50 text-green-700"
-                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                  }`}
-                >
-                  <div className="flex min-w-0 items-start gap-3">
-                    <span
-                      className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-base ${
-                        active
-                          ? "bg-white text-green-600"
-                          : "bg-slate-50 text-slate-500"
-                      }`}
-                    >
-                      {section.icon}
-                    </span>
-
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold">
-                        {section.label}
-                      </div>
-
-                      <div
-                        className={`mt-0.5 text-[11px] leading-4 ${
-                          active ? "text-green-600/70" : "text-slate-400"
+                return (
+                  <button
+                    key={section.key}
+                    type="button"
+                    onClick={() => setActiveSection(section.key)}
+                    className={`w-full min-w-0 rounded-lg px-3 py-2.5 text-left transition ${
+                      active
+                        ? "bg-green-50 text-green-700"
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    }`}
+                  >
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span
+                        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-base ${
+                          active
+                            ? "bg-white text-green-600"
+                            : "bg-slate-50 text-slate-500"
                         }`}
                       >
-                        {section.description}
+                        {section.icon}
+                      </span>
+
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">
+                          {section.label}
+                        </div>
+
+                        <div
+                          className={`mt-0.5 text-[11px] leading-4 ${
+                            active ? "text-green-600/70" : "text-slate-400"
+                          }`}
+                        >
+                          {section.description}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </button>
-              );
-            })}
+                  </button>
+                );
+              })}
           </div>
         </aside>
 
@@ -1104,6 +1167,155 @@ export default function Settings() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </section>
+          )}
+
+          {/* USER ACCESS */}
+
+          {activeSection === "access" && isAdministrator && (
+            <section className="p-4 sm:p-5 md:p-6">
+              <SectionHeader
+                title="User Access"
+                description="Manage CRM users, roles and account status."
+                accent="blue"
+              />
+
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="min-w-[760px] w-full text-sm">
+                  <thead className="bg-[#F4F7FA]">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                        Name
+                      </th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                        Email
+                      </th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                        Role
+                      </th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                        Status
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {crmUsers.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          className="px-4 py-10 text-center text-slate-500"
+                        >
+                          No CRM users found.
+                        </td>
+                      </tr>
+                    ) : (
+                      crmUsers.map((user) => (
+                        <tr key={user.id} className="border-t border-slate-100">
+                          <td className="px-4 py-3 font-semibold text-slate-900">
+                            {user.full_name || "—"}
+                          </td>
+
+                          <td className="px-4 py-3 text-slate-600">
+                            {user.email || "—"}
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <select
+                              value={user.role}
+                              disabled={user.id === currentUserId}
+                              onChange={async (e) => {
+                                const newRole = e.target.value;
+
+                                try {
+                                  const { error } = await supabase
+                                    .from("profiles")
+                                    .update({ role: newRole })
+                                    .eq("id", user.id);
+
+                                  if (error) {
+                                    throw error;
+                                  }
+
+                                  await refreshCRMUsers();
+
+                                  showSaved("User role updated successfully.");
+                                } catch (error) {
+                                  console.error(
+                                    "Failed to update user role:",
+                                    error,
+                                  );
+
+                                  setMessage(
+                                    "Failed to update user role. Please try again.",
+                                  );
+                                }
+                              }}
+                              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                            >
+                              <option value="Sales">Sales</option>
+                              <option value="Operations">Operations</option>
+                              <option value="Administrator">
+                                Administrator
+                              </option>
+                            </select>
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              disabled={user.id === currentUserId}
+                              onClick={async () => {
+                                const newStatus = !user.is_active;
+
+                                try {
+                                  const { error } = await supabase
+                                    .from("profiles")
+                                    .update({ is_active: newStatus })
+                                    .eq("id", user.id);
+
+                                  if (error) {
+                                    throw error;
+                                  }
+
+                                  await refreshCRMUsers();
+
+                                  showSaved(
+                                    newStatus
+                                      ? "User activated successfully."
+                                      : "User deactivated successfully.",
+                                  );
+                                } catch (error) {
+                                  console.error(
+                                    "Failed to update user status:",
+                                    error,
+                                  );
+
+                                  setMessage(
+                                    "Failed to update user status. Please try again.",
+                                  );
+                                }
+                              }}
+                              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                                user.is_active
+                                  ? "bg-green-50 text-green-700 hover:bg-green-100"
+                                  : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                              } disabled:cursor-not-allowed disabled:opacity-60`}
+                            >
+                              {user.is_active ? "Active" : "Inactive"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700">
+                User Access is available only to Administrators. Your own
+                Administrator role cannot be changed from this screen.
               </div>
             </section>
           )}

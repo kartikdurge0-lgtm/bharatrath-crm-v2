@@ -14,7 +14,8 @@ export default function AuthCallback() {
    * LOGIN GREETING
    * =====================================================
    */
-  const playLoginGreeting = async () => {
+
+  const playLoginGreeting = () => {
     const hour = new Date().getHours();
 
     const greeting =
@@ -24,9 +25,11 @@ export default function AuthCallback() {
           ? "Good afternoon"
           : "Good evening";
 
-    await playSound("notification");
+    void playSound("notification").catch((error) => {
+      console.warn("Login notification sound unavailable:", error);
+    });
 
-    speak(`${greeting}. Welcome to Bharat Rath CRM.`);
+    speak(`${greeting}. Welcome to भारत रथ सीआरएम्.`);
   };
 
   useEffect(() => {
@@ -117,7 +120,7 @@ export default function AuthCallback() {
           window.history.replaceState({}, document.title, "/auth/callback");
 
           if (mounted) {
-            await playLoginGreeting();
+            playLoginGreeting();
 
             navigate("/", { replace: true });
           }
@@ -175,7 +178,7 @@ export default function AuthCallback() {
             window.history.replaceState({}, document.title, "/auth/callback");
 
             if (mounted) {
-              await playLoginGreeting();
+              playLoginGreeting();
 
               navigate("/", { replace: true });
             }
@@ -209,7 +212,7 @@ export default function AuthCallback() {
         if (sessionData.session) {
           console.log("Existing session found.");
 
-          await playLoginGreeting();
+          playLoginGreeting();
 
           navigate("/", { replace: true });
 

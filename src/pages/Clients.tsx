@@ -238,18 +238,6 @@ export default function Clients() {
         ================================================= */}
 
         <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:items-center">
-          {/* Archived Clients */}
-
-          <button
-            type="button"
-            onClick={() => navigate("/archived-clients")}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 sm:px-4"
-          >
-            <span aria-hidden="true">📁</span>
-
-            <span>Archived Clients</span>
-          </button>
-
           {/* Add Client */}
 
           <button

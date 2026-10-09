@@ -1,8 +1,11 @@
 import { supabase } from "../lib/supabase";
+
 import { getClientById } from "./clientStore";
 
 /* =========================================================
+
    TYPES
+
 ========================================================= */
 
 export type FollowUpStatus = "Pending" | "Completed";
@@ -15,18 +18,25 @@ export type FollowUp = {
   id: string;
 
   relatedType?: FollowUpRelatedType;
+
   relatedId?: string;
+
   relatedName?: string;
 
   clientId: string;
+
   clientName: string;
+
   contactPerson: string;
+
   phone: string;
 
   purpose: string;
+
   followUpType: string;
 
   followUpDate: string;
+
   followUpTime: string;
 
   priority: FollowUpPriority;
@@ -36,108 +46,163 @@ export type FollowUp = {
   reminder: string;
 
   nextFollowUpDate: string;
+
   nextFollowUpTime: string;
 
   nextAction: string;
 
   notes: string;
+
   clientResponse: string;
+
   internalNotes: string;
 
   status: FollowUpStatus;
 
   completedAt?: string;
 
+  isArchived?: boolean;
+
+  archivedAt?: string;
+
   createdAt: string;
 };
 
 /* =========================================================
+
    DATABASE ROW
+
 ========================================================= */
 
 type FollowUpRow = {
   id: number;
 
   lead_id: number | null;
+
   client_id: number | null;
+
   assigned_to_id: number | null;
 
   follow_up_date: string;
+
   follow_up_time: string | null;
 
   type: string;
+
   subject: string | null;
 
   notes: string | null;
+
   outcome: string | null;
+
   next_action: string | null;
 
   next_follow_up_date: string | null;
 
   status: string;
+
   priority: string;
 
   created_by: string | null;
+
   created_at: string;
+
   updated_at: string;
 
   completed_at: string | null;
+
+  is_archived: boolean;
+
+  archived_at: string | null;
+
+  archived_by: string | null;
 };
 
 /* =========================================================
+
    RELATED DATABASE ROWS
+
 ========================================================= */
 
 type ClientRow = {
   id: number;
+
   crm_client_id: string | null;
+
   company_name: string;
+
   contact_person: string | null;
+
   phone: string | null;
+
   is_archived?: boolean | null;
 };
 
 type LeadRow = {
   id: number;
+
   company_name: string;
+
   contact_person: string | null;
+
   phone: string | null;
 };
 
 type SalesPersonRow = {
   id: number;
+
   name: string;
 };
 
 /* =========================================================
+
    ACTIVITY LOG
+
 ========================================================= */
 
 async function logActivity({
   action,
+
   module,
+
   recordId,
+
   recordName,
+
   description,
+
   oldData,
+
   newData,
 }: {
   action: string;
+
   module: string;
+
   recordId: string;
+
   recordName?: string;
+
   description: string;
+
   oldData?: unknown;
+
   newData?: unknown;
 }) {
   try {
     const { error } = await supabase.from("activity_logs").insert({
       action,
+
       module,
+
       record_id: recordId,
+
       record_name: recordName || "",
+
       description,
+
       old_data: oldData ?? null,
+
       new_data: newData ?? null,
     });
 
@@ -150,11 +215,14 @@ async function logActivity({
 }
 
 /* =========================================================
+
    ID HELPERS
+
 ========================================================= */
 
 function getDatabaseId(
   displayId: string | undefined,
+
   prefix: string,
 ): number | null {
   if (!displayId) {
@@ -195,7 +263,9 @@ function getSalesPersonDatabaseId(displayId: string): number | null {
 }
 
 /* =========================================================
+
    NORMALIZERS
+
 ========================================================= */
 
 function normalizeStatus(value: string): FollowUpStatus {
@@ -211,25 +281,37 @@ function normalizePriority(value: string): FollowUpPriority {
 }
 
 /* =========================================================
+
    CLIENT RESOLUTION
+
    IMPORTANT:
+
    CL-001 etc. are CRM IDs.
+
    Supabase clients.id is a separate numeric ID.
+
 ========================================================= */
 
 async function resolveClientDatabaseId(
   clientDisplayId: string | undefined,
+
   clientName?: string,
 ): Promise<number | null> {
   /* -------------------------------------------------------
+
      1. BEST METHOD — crm_client_id
+
   ------------------------------------------------------- */
 
   if (clientDisplayId?.trim()) {
     const { data, error } = await supabase
+
       .from("clients")
+
       .select("id")
+
       .eq("crm_client_id", clientDisplayId.trim())
+
       .maybeSingle();
 
     if (error) {
@@ -242,8 +324,11 @@ async function resolveClientDatabaseId(
   }
 
   /* -------------------------------------------------------
+
      2. LOCAL CLIENT → COMPANY NAME
+
      Only as legacy fallback.
+
   ------------------------------------------------------- */
 
   if (clientDisplayId) {
@@ -253,10 +338,15 @@ async function resolveClientDatabaseId(
       const cleanName = localClient.company.trim();
 
       const { data, error } = await supabase
+
         .from("clients")
+
         .select("id, crm_client_id, company_name")
+
         .eq("company_name", cleanName)
+
         .eq("is_archived", false)
+
         .limit(2);
 
       if (error) {
@@ -264,11 +354,17 @@ async function resolveClientDatabaseId(
       }
 
       /*
+
        * Only use company fallback when exactly one
+
        * active record exists.
+
        *
+
        * This avoids accidentally connecting a duplicate.
+
        */
+
       if (data && data.length === 1) {
         return Number(data[0].id);
       }
@@ -282,17 +378,24 @@ async function resolveClientDatabaseId(
   }
 
   /* -------------------------------------------------------
+
      3. Name fallback
+
   ------------------------------------------------------- */
 
   if (clientName?.trim()) {
     const cleanName = clientName.trim();
 
     const { data, error } = await supabase
+
       .from("clients")
+
       .select("id, crm_client_id, company_name")
+
       .eq("company_name", cleanName)
+
       .eq("is_archived", false)
+
       .limit(2);
 
     if (error) {
@@ -311,18 +414,26 @@ async function resolveClientDatabaseId(
   }
 
   /* -------------------------------------------------------
+
      4. Legacy numeric fallback
+
      Only if no better mapping exists.
+
   ------------------------------------------------------- */
 
   const numericId = getClientDisplayDatabaseId(clientDisplayId);
 
   if (numericId !== null) {
     const { data, error } = await supabase
+
       .from("clients")
+
       .select("id")
+
       .eq("id", numericId)
+
       .eq("is_archived", false)
+
       .maybeSingle();
 
     if (error) {
@@ -338,24 +449,33 @@ async function resolveClientDatabaseId(
 }
 
 /* =========================================================
+
    LEAD RESOLUTION
+
 ========================================================= */
 
 async function resolveLeadDatabaseId(
   leadDisplayId: string | undefined,
+
   leadName?: string,
 ): Promise<number | null> {
   /* -------------------------------------------------------
+
      1. LEAD-xxx → Supabase numeric ID
+
   ------------------------------------------------------- */
 
   const numericId = getLeadDatabaseId(leadDisplayId);
 
   if (numericId !== null) {
     const { data, error } = await supabase
+
       .from("leads")
+
       .select("id")
+
       .eq("id", numericId)
+
       .maybeSingle();
 
     if (error) {
@@ -368,16 +488,22 @@ async function resolveLeadDatabaseId(
   }
 
   /* -------------------------------------------------------
+
      2. Company name fallback
+
   ------------------------------------------------------- */
 
   if (leadName?.trim()) {
     const cleanName = leadName.trim();
 
     const { data, error } = await supabase
+
       .from("leads")
+
       .select("id, company_name")
+
       .eq("company_name", cleanName)
+
       .limit(2);
 
     if (error) {
@@ -397,24 +523,33 @@ async function resolveLeadDatabaseId(
 }
 
 /* =========================================================
+
    SALES PERSON RESOLUTION
+
 ========================================================= */
 
 async function resolveSalesPersonDatabaseId(
   displayId: string | undefined,
+
   name?: string,
 ): Promise<number | null> {
   /* -------------------------------------------------------
+
      1. SP-xxx → numeric database ID
+
   ------------------------------------------------------- */
 
   const numericId = getSalesPersonDatabaseId(displayId || "");
 
   if (numericId !== null) {
     const { data, error } = await supabase
+
       .from("sales_persons")
+
       .select("id")
+
       .eq("id", numericId)
+
       .maybeSingle();
 
     if (error) {
@@ -427,16 +562,22 @@ async function resolveSalesPersonDatabaseId(
   }
 
   /* -------------------------------------------------------
+
      2. Name fallback
+
   ------------------------------------------------------- */
 
   if (name?.trim()) {
     const cleanName = name.trim();
 
     const { data, error } = await supabase
+
       .from("sales_persons")
+
       .select("id, name")
+
       .eq("name", cleanName)
+
       .limit(2);
 
     if (error) {
@@ -452,16 +593,22 @@ async function resolveSalesPersonDatabaseId(
 }
 
 /* =========================================================
+
    BATCH LOAD RELATED DATA
+
    IMPORTANT:
+
    This removes the N+1 query problem.
+
 ========================================================= */
 
 async function loadRelatedMaps(rows: FollowUpRow[]) {
   const clientIds = Array.from(
     new Set(
       rows
+
         .map((row) => row.client_id)
+
         .filter((id): id is number => id !== null),
     ),
   );
@@ -475,48 +622,65 @@ async function loadRelatedMaps(rows: FollowUpRow[]) {
   const salesPersonIds = Array.from(
     new Set(
       rows
+
         .map((row) => row.assigned_to_id)
+
         .filter((id): id is number => id !== null),
     ),
   );
 
   const clientMap = new Map<number, ClientRow>();
+
   const leadMap = new Map<number, LeadRow>();
+
   const salesPersonMap = new Map<number, SalesPersonRow>();
 
   /*
+
    * No IDs means no query needed.
+
    */
 
   const clientPromise =
     clientIds.length > 0
       ? supabase
+
           .from("clients")
+
           .select(
             "id, crm_client_id, company_name, contact_person, phone, is_archived",
           )
+
           .in("id", clientIds)
       : Promise.resolve({ data: [], error: null });
 
   const leadPromise =
     leadIds.length > 0
       ? supabase
+
           .from("leads")
+
           .select("id, company_name, contact_person, phone")
+
           .in("id", leadIds)
       : Promise.resolve({ data: [], error: null });
 
   const salesPromise =
     salesPersonIds.length > 0
       ? supabase
+
           .from("sales_persons")
+
           .select("id, name")
+
           .in("id", salesPersonIds)
       : Promise.resolve({ data: [], error: null });
 
   const [clientsResult, leadsResult, salesResult] = await Promise.all([
     clientPromise,
+
     leadPromise,
+
     salesPromise,
   ]);
 
@@ -546,19 +710,26 @@ async function loadRelatedMaps(rows: FollowUpRow[]) {
 
   return {
     clientMap,
+
     leadMap,
+
     salesPersonMap,
   };
 }
 
 /* =========================================================
+
    MAP SINGLE ROW
+
 ========================================================= */
 
 function mapFollowUpRow(
   row: FollowUpRow,
+
   clientMap: Map<number, ClientRow>,
+
   leadMap: Map<number, LeadRow>,
+
   salesPersonMap: Map<number, SalesPersonRow>,
 ): FollowUp {
   const client =
@@ -572,21 +743,30 @@ function mapFollowUpRow(
       : undefined;
 
   let relatedType: FollowUpRelatedType | undefined;
+
   let relatedId: string | undefined;
+
   let relatedName: string | undefined;
 
   if (row.lead_id !== null) {
     relatedType = "Lead";
+
     relatedId = formatId("LEAD", row.lead_id);
+
     relatedName = lead?.company_name;
   } else if (row.client_id !== null) {
     relatedType = "Client";
 
     /*
+
      * IMPORTANT:
+
      * Prefer CRM client ID.
+
      * Do NOT assume CL-xxx equals Supabase ID.
+
      */
+
     relatedId = client?.crm_client_id || formatId("CL", row.client_id);
 
     relatedName = client?.company_name;
@@ -596,7 +776,9 @@ function mapFollowUpRow(
     id: formatId("FU", row.id),
 
     relatedType,
+
     relatedId,
+
     relatedName,
 
     clientId:
@@ -626,9 +808,13 @@ function mapFollowUpRow(
     nextFollowUpDate: row.next_follow_up_date ?? "",
 
     /*
+
      * Current follow_ups schema does not expose
+
      * next_follow_up_time.
+
      */
+
     nextFollowUpTime: "",
 
     nextAction: row.next_action ?? "",
@@ -643,12 +829,18 @@ function mapFollowUpRow(
 
     completedAt: row.completed_at ?? undefined,
 
+    isArchived: row.is_archived,
+
+    archivedAt: row.archived_at ?? undefined,
+
     createdAt: row.created_at,
   };
 }
 
 /* =========================================================
+
    MAP MANY
+
 ========================================================= */
 
 async function mapFollowUps(rows: FollowUpRow[]): Promise<FollowUp[]> {
@@ -664,16 +856,24 @@ async function mapFollowUps(rows: FollowUpRow[]): Promise<FollowUp[]> {
 }
 
 /* =========================================================
+
    GET ALL
+
 ========================================================= */
 
 export async function getFollowUps(): Promise<FollowUp[]> {
   const { data, error } = await supabase
+
     .from("follow_ups")
+
     .select("*")
+
+    .eq("is_archived", false)
+
     .order("follow_up_date", {
       ascending: true,
     })
+
     .order("follow_up_time", {
       ascending: true,
     });
@@ -688,7 +888,9 @@ export async function getFollowUps(): Promise<FollowUp[]> {
 }
 
 /* =========================================================
+
    GET SINGLE
+
 ========================================================= */
 
 export async function getFollowUp(id: string): Promise<FollowUp | null> {
@@ -699,9 +901,13 @@ export async function getFollowUp(id: string): Promise<FollowUp | null> {
   }
 
   const { data, error } = await supabase
+
     .from("follow_ups")
+
     .select("*")
+
     .eq("id", databaseId)
+
     .maybeSingle();
 
   if (error) {
@@ -720,17 +926,24 @@ export async function getFollowUp(id: string): Promise<FollowUp | null> {
 }
 
 /* =========================================================
+
    GENERATE ID
+
 ========================================================= */
 
 export async function generateFollowUpId(): Promise<string> {
   const { data, error } = await supabase
+
     .from("follow_ups")
+
     .select("id")
+
     .order("id", {
       ascending: false,
     })
+
     .limit(1)
+
     .maybeSingle();
 
   if (error || !data) {
@@ -741,20 +954,30 @@ export async function generateFollowUpId(): Promise<string> {
 }
 
 /* =========================================================
+
    ADD FOLLOW-UP
+
 ========================================================= */
 
 export async function addFollowUp(
   followUp: FollowUp,
 ): Promise<FollowUp | null> {
   /* -------------------------------------------------------
+
      QUOTATION / RENEWAL
-     
+
+
+
      Current database structure only has:
+
      lead_id
+
      client_id
-     
+
+
+
      Therefore do not silently create orphan records.
+
   ------------------------------------------------------- */
 
   if (
@@ -767,7 +990,9 @@ export async function addFollowUp(
   }
 
   /* -------------------------------------------------------
+
      RESOLVE CLIENT
+
   ------------------------------------------------------- */
 
   const clientId =
@@ -776,25 +1001,32 @@ export async function addFollowUp(
       : null;
 
   /* -------------------------------------------------------
+
      RESOLVE LEAD
+
   ------------------------------------------------------- */
 
   const leadId =
     followUp.relatedType === "Lead"
       ? await resolveLeadDatabaseId(
           followUp.relatedId,
+
           followUp.relatedName || followUp.clientName,
         )
       : null;
 
   /* -------------------------------------------------------
+
      RESOLVE SALES PERSON
+
   ------------------------------------------------------- */
 
   const assignedToId = await resolveSalesPersonDatabaseId(followUp.assignedTo);
 
   /* -------------------------------------------------------
+
      CURRENT USER
+
   ------------------------------------------------------- */
 
   const {
@@ -802,7 +1034,9 @@ export async function addFollowUp(
   } = await supabase.auth.getUser();
 
   /* -------------------------------------------------------
+
      VALIDATION
+
   ------------------------------------------------------- */
 
   if (followUp.relatedType === "Client" && clientId === null) {
@@ -824,11 +1058,15 @@ export async function addFollowUp(
   }
 
   /* -------------------------------------------------------
+
      INSERT
+
   ------------------------------------------------------- */
 
   const { data, error } = await supabase
+
     .from("follow_ups")
+
     .insert({
       lead_id: followUp.relatedType === "Lead" ? leadId : null,
 
@@ -860,9 +1098,17 @@ export async function addFollowUp(
 
       completed_at: followUp.completedAt || null,
 
+      is_archived: false,
+
+      archived_at: null,
+
+      archived_by: null,
+
       updated_at: new Date().toISOString(),
     })
+
     .select("*")
+
     .single();
 
   if (error) {
@@ -880,13 +1126,20 @@ export async function addFollowUp(
   }
 
   /*
+
    * Activity log should NOT block the user
+
    * from returning to the Lead page.
+
    */
+
   void logActivity({
     action: "CREATE",
+
     module: "Follow-ups",
+
     recordId: createdFollowUp.id,
+
     recordName:
       createdFollowUp.clientName ||
       createdFollowUp.relatedName ||
@@ -917,13 +1170,18 @@ export async function addFollowUp(
 }
 
 /* =========================================================
+
    INTERNAL UPDATE
+
 ========================================================= */
 
 async function updateFollowUpInternal(
   id: string,
+
   updates: Partial<FollowUp>,
+
   activityAction: string,
+
   activityDescription: string,
 ): Promise<FollowUp | null> {
   const databaseId = getFollowUpDatabaseId(id);
@@ -933,8 +1191,11 @@ async function updateFollowUpInternal(
   }
 
   /*
+
    * Load existing record.
+
    */
+
   const existing = await getFollowUp(id);
 
   if (!existing) {
@@ -946,13 +1207,17 @@ async function updateFollowUpInternal(
   };
 
   /* -------------------------------------------------------
+
      RELATED TYPE
+
   ------------------------------------------------------- */
 
   const targetRelatedType = updates.relatedType ?? existing.relatedType;
 
   /* -------------------------------------------------------
+
      CLIENT
+
   ------------------------------------------------------- */
 
   if (
@@ -966,6 +1231,7 @@ async function updateFollowUpInternal(
 
     const resolvedClientId = await resolveClientDatabaseId(
       clientDisplayId,
+
       updates.clientName || updates.relatedName || existing.clientName,
     );
 
@@ -983,7 +1249,9 @@ async function updateFollowUpInternal(
   }
 
   /* -------------------------------------------------------
+
      LEAD
+
   ------------------------------------------------------- */
 
   if (
@@ -994,6 +1262,7 @@ async function updateFollowUpInternal(
 
     const resolvedLeadId = await resolveLeadDatabaseId(
       leadDisplayId,
+
       updates.relatedName ||
         updates.clientName ||
         existing.relatedName ||
@@ -1018,7 +1287,9 @@ async function updateFollowUpInternal(
   }
 
   /* -------------------------------------------------------
+
      QUOTATION / RENEWAL
+
   ------------------------------------------------------- */
 
   if (targetRelatedType === "Quotation" || targetRelatedType === "Renewal") {
@@ -1028,7 +1299,9 @@ async function updateFollowUpInternal(
   }
 
   /* -------------------------------------------------------
+
      ASSIGNED TO
+
   ------------------------------------------------------- */
 
   if (updates.assignedTo !== undefined) {
@@ -1042,7 +1315,9 @@ async function updateFollowUpInternal(
   }
 
   /* -------------------------------------------------------
+
      BASIC FIELDS
+
   ------------------------------------------------------- */
 
   if (updates.followUpDate !== undefined) {
@@ -1089,15 +1364,34 @@ async function updateFollowUpInternal(
     databaseUpdates.completed_at = updates.completedAt || null;
   }
 
+  if (updates.isArchived !== undefined) {
+    databaseUpdates.is_archived = updates.isArchived;
+
+    if (updates.isArchived) {
+      databaseUpdates.archived_at = new Date().toISOString();
+    } else {
+      databaseUpdates.archived_at = null;
+
+      databaseUpdates.archived_by = null;
+    }
+  }
+
   /* -------------------------------------------------------
+
      DATABASE UPDATE
+
   ------------------------------------------------------- */
 
   const { data, error } = await supabase
+
     .from("follow_ups")
+
     .update(databaseUpdates)
+
     .eq("id", databaseId)
+
     .select("*")
+
     .maybeSingle();
 
   if (error) {
@@ -1119,10 +1413,14 @@ async function updateFollowUpInternal(
   }
 
   /*
+
    * Do not make the UI wait for activity log.
+
    */
+
   void logActivity({
     action: activityAction,
+
     module: "Follow-ups",
 
     recordId: updatedFollowUp.id,
@@ -1136,21 +1434,33 @@ async function updateFollowUpInternal(
 
     oldData: {
       status: existing.status,
+
       purpose: existing.purpose,
+
       followUpDate: existing.followUpDate,
+
       followUpTime: existing.followUpTime,
+
       priority: existing.priority,
+
       assignedTo: existing.assignedTo,
+
       notes: existing.notes,
     },
 
     newData: {
       status: updatedFollowUp.status,
+
       purpose: updatedFollowUp.purpose,
+
       followUpDate: updatedFollowUp.followUpDate,
+
       followUpTime: updatedFollowUp.followUpTime,
+
       priority: updatedFollowUp.priority,
+
       assignedTo: updatedFollowUp.assignedTo,
+
       notes: updatedFollowUp.notes,
     },
   });
@@ -1159,84 +1469,146 @@ async function updateFollowUpInternal(
 }
 
 /* =========================================================
+
    UPDATE
+
 ========================================================= */
 
 export async function updateFollowUp(
   id: string,
+
   updates: Partial<FollowUp>,
 ): Promise<FollowUp | null> {
   return updateFollowUpInternal(
     id,
+
     updates,
+
     "UPDATE",
+
     `Updated follow-up ${id}`,
   );
 }
 
 /* =========================================================
+
    COMPLETE
+
 ========================================================= */
 
 export async function completeFollowUp(id: string): Promise<FollowUp | null> {
   return updateFollowUpInternal(
     id,
+
     {
       status: "Completed",
+
       completedAt: new Date().toISOString(),
     },
+
     "FOLLOW_UP_COMPLETED",
+
     `Completed follow-up ${id}`,
   );
 }
 
 /* =========================================================
+
    REOPEN
+
 ========================================================= */
 
 export async function reopenFollowUp(id: string): Promise<FollowUp | null> {
   return updateFollowUpInternal(
     id,
+
     {
       status: "Pending",
+
       completedAt: "",
     },
+
     "UPDATE",
+
     `Reopened follow-up ${id}`,
   );
 }
 
 /* =========================================================
+
    ARCHIVE
+
 ========================================================= */
 
 export async function deleteFollowUp(id: string): Promise<boolean> {
   const updated = await updateFollowUpInternal(
     id,
+
     {
-      status: "Completed",
-      completedAt: new Date().toISOString(),
-      clientResponse: "Archived",
+      isArchived: true,
     },
+
     "ARCHIVE",
+
     `Archived follow-up ${id}`,
   );
 
   return updated !== null;
 }
 
+export async function restoreFollowUp(id: string): Promise<FollowUp | null> {
+  return updateFollowUpInternal(
+    id,
+
+    {
+      isArchived: false,
+    },
+
+    "UPDATE",
+
+    `Restored follow-up ${id}`,
+  );
+}
+
+export async function getArchivedFollowUps(): Promise<FollowUp[]> {
+  const { data, error } = await supabase
+
+    .from("follow_ups")
+
+    .select("*")
+
+    .eq("is_archived", true)
+
+    .order("archived_at", {
+      ascending: false,
+    });
+
+  if (error) {
+    console.error("Archived follow-ups error:", error);
+
+    return [];
+  }
+
+  return mapFollowUps((data ?? []) as FollowUpRow[]);
+}
+
 /* =========================================================
+
    GET BY RELATED RECORD
+
 ========================================================= */
 
 export async function getFollowUpsByRelatedRecord(
   relatedType: FollowUpRelatedType,
+
   relatedId: string,
 ): Promise<FollowUp[]> {
-  let query = supabase.from("follow_ups").select("*");
+  let query = supabase.from("follow_ups").select("*").eq("is_archived", false);
 
   /* -------------------------------------------------------
+
      LEAD
+
   ------------------------------------------------------- */
 
   if (relatedType === "Lead") {
@@ -1248,14 +1620,17 @@ export async function getFollowUpsByRelatedRecord(
 
     query = query.eq("lead_id", databaseId);
   } else if (relatedType === "Client") {
+    /* -------------------------------------------------------
 
-  /* -------------------------------------------------------
      CLIENT
+
   ------------------------------------------------------- */
+
     const localClient = getClientById(relatedId);
 
     const databaseId = await resolveClientDatabaseId(
       relatedId,
+
       localClient?.company,
     );
 
@@ -1265,10 +1640,12 @@ export async function getFollowUpsByRelatedRecord(
 
     query = query.eq("client_id", databaseId);
   } else {
+    /* -------------------------------------------------------
 
-  /* -------------------------------------------------------
      QUOTATION / RENEWAL
+
   ------------------------------------------------------- */
+
     return [];
   }
 
@@ -1286,7 +1663,9 @@ export async function getFollowUpsByRelatedRecord(
 }
 
 /* =========================================================
+
    LEAD FOLLOW-UPS
+
 ========================================================= */
 
 export async function getLeadFollowUps(leadId: string): Promise<FollowUp[]> {
@@ -1294,7 +1673,9 @@ export async function getLeadFollowUps(leadId: string): Promise<FollowUp[]> {
 }
 
 /* =========================================================
+
    CLIENT FOLLOW-UPS
+
 ========================================================= */
 
 export async function getClientFollowUps(
@@ -1304,7 +1685,9 @@ export async function getClientFollowUps(
 }
 
 /* =========================================================
+
    QUOTATION FOLLOW-UPS
+
 ========================================================= */
 
 export async function getQuotationFollowUps(
@@ -1316,7 +1699,9 @@ export async function getQuotationFollowUps(
 }
 
 /* =========================================================
+
    RENEWAL FOLLOW-UPS
+
 ========================================================= */
 
 export async function getRenewalFollowUps(
@@ -1328,17 +1713,26 @@ export async function getRenewalFollowUps(
 }
 
 /* =========================================================
+
    PENDING
+
 ========================================================= */
 
 export async function getPendingFollowUps(): Promise<FollowUp[]> {
   const { data, error } = await supabase
+
     .from("follow_ups")
+
     .select("*")
+
     .eq("status", "Pending")
+
+    .eq("is_archived", false)
+
     .order("follow_up_date", {
       ascending: true,
     })
+
     .order("follow_up_time", {
       ascending: true,
     });
@@ -1353,14 +1747,22 @@ export async function getPendingFollowUps(): Promise<FollowUp[]> {
 }
 
 /* =========================================================
+
    COMPLETED
+
 ========================================================= */
 
 export async function getCompletedFollowUps(): Promise<FollowUp[]> {
   const { data, error } = await supabase
+
     .from("follow_ups")
+
     .select("*")
+
     .eq("status", "Completed")
+
+    .eq("is_archived", false)
+
     .order("follow_up_date", {
       ascending: false,
     });
@@ -1375,17 +1777,26 @@ export async function getCompletedFollowUps(): Promise<FollowUp[]> {
 }
 
 /* =========================================================
+
    TODAY
+
 ========================================================= */
 
 export async function getTodayFollowUps(): Promise<FollowUp[]> {
   const today = new Date().toISOString().split("T")[0];
 
   const { data, error } = await supabase
+
     .from("follow_ups")
+
     .select("*")
+
     .eq("follow_up_date", today)
+
     .eq("status", "Pending")
+
+    .eq("is_archived", false)
+
     .order("follow_up_time", {
       ascending: true,
     });
@@ -1400,17 +1811,26 @@ export async function getTodayFollowUps(): Promise<FollowUp[]> {
 }
 
 /* =========================================================
+
    OVERDUE
+
 ========================================================= */
 
 export async function getOverdueFollowUps(): Promise<FollowUp[]> {
   const today = new Date().toISOString().split("T")[0];
 
   const { data, error } = await supabase
+
     .from("follow_ups")
+
     .select("*")
+
     .lt("follow_up_date", today)
+
     .eq("status", "Pending")
+
+    .eq("is_archived", false)
+
     .order("follow_up_date", {
       ascending: true,
     });

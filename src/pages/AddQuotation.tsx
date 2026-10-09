@@ -1,9 +1,13 @@
 /* =========================================================
+
    ADD QUOTATION
+
    Bharatrath CRM
+
 ========================================================= */
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
@@ -17,10 +21,12 @@ import {
   type QuotationStatus,
 } from "../data/quotationStore";
 
-import { getClients, type Client } from "../data/clientStore";
+import { addClient, getClients, type Client } from "../data/clientStore";
+
 import SearchableClientSelect from "../components/SearchableClientSelect";
 
 import { getLeads, getLead, type Lead } from "../data/leadStore";
+
 import { getServices, type Service } from "../data/serviceStore";
 
 import {
@@ -28,14 +34,20 @@ import {
   type SalesPerson,
 } from "../data/salesPersonStore";
 
+import { playSound } from "../audio/soundManager";
+
 /* =========================================================
+
    CONSTANTS
+
 ========================================================= */
 
 const QUOTATION_SETTINGS_KEY = "crm-settings-quotation";
 
 /* =========================================================
+
    HELPERS
+
 ========================================================= */
 
 function getToday(): string {
@@ -45,11 +57,17 @@ function getToday(): string {
 function emptyItem(): QuotationItem {
   return {
     serviceId: "",
+
     description: "",
+
     sac: "",
+
     basicCost: 0,
+
     discountedCost: 0,
+
     finalCost: 0,
+
     frequency: "",
   };
 }
@@ -57,32 +75,45 @@ function emptyItem(): QuotationItem {
 function currency(value: number): string {
   return `₹${Number(value || 0).toLocaleString("en-IN", {
     minimumFractionDigits: 2,
+
     maximumFractionDigits: 2,
   })}`;
 }
 
 /* =========================================================
+
    QUOTATION NUMBER SETTINGS
+
 ========================================================= */
 
 type QuotationNumberSettings = {
   prefix: string;
+
   nextNumber: string;
+
   validity: string;
+
   notes: string;
+
   terms: string;
 };
 
 const defaultQuotationNumberSettings: QuotationNumberSettings = {
   prefix: "QUO-",
+
   nextNumber: "001",
+
   validity: "15",
+
   notes: "",
+
   terms: "",
 };
 
 /* =========================================================
+
    GET SETTINGS
+
 ========================================================= */
 
 function getQuotationNumberSettings(): QuotationNumberSettings {
@@ -99,6 +130,7 @@ function getQuotationNumberSettings(): QuotationNumberSettings {
 
     return {
       ...defaultQuotationNumberSettings,
+
       ...parsed,
     };
   } catch {
@@ -109,16 +141,21 @@ function getQuotationNumberSettings(): QuotationNumberSettings {
 }
 
 /* =========================================================
+
    GET NUMERIC PART
+
 ========================================================= */
 
 function getQuotationNumericPart(
   quotationNumber: string,
+
   prefix: string,
 ): number {
-  const safePrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const safePrefix = prefix.replace(/[.*+?^${}()|[**\\]\\\**]/g, "\\\\$&");
 
-  const match = quotationNumber.match(new RegExp(`^${safePrefix}(\\d+)$`, "i"));
+  const match = quotationNumber.match(
+    new RegExp(`^${safePrefix}(\\\d+)$`, "i"),
+  );
 
   if (!match) {
     return 0;
@@ -130,7 +167,9 @@ function getQuotationNumericPart(
 }
 
 /* =========================================================
+
    INCREMENT NUMBER
+
 ========================================================= */
 
 function incrementQuotationNumber(savedQuotationNumber?: string): void {
@@ -145,6 +184,7 @@ function incrementQuotationNumber(savedQuotationNumber?: string): void {
   if (savedQuotationNumber) {
     const savedNumericPart = getQuotationNumericPart(
       savedQuotationNumber,
+
       prefix,
     );
 
@@ -155,6 +195,7 @@ function incrementQuotationNumber(savedQuotationNumber?: string): void {
 
   const updatedSettings: QuotationNumberSettings = {
     ...settings,
+
     nextNumber: String(nextNumber).padStart(3, "0"),
   };
 
@@ -162,31 +203,136 @@ function incrementQuotationNumber(savedQuotationNumber?: string): void {
 }
 
 /* =========================================================
+
    COMPONENT
+
 ========================================================= */
 
 export default function AddQuotation() {
   const navigate = useNavigate();
+
   const [searchParams] = useSearchParams();
 
   /* =======================================================
+
      DATA
+
   ======================================================= */
 
-  const clients = useMemo<Client[]>(() => getClients(), []);
+  const [clients, setClients] = useState<Client[]>(() => getClients());
 
   const [services, setServices] = useState<Service[]>([]);
 
+  function normalizeMatchValue(value: unknown): string {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  }
+
+  function findClientForLead(lead: Lead): Client | undefined {
+    if (lead.convertedClientId) {
+      const convertedClient = clients.find(
+        (client) => String(client.id) === String(lead.convertedClientId),
+      );
+
+      if (convertedClient) {
+        return convertedClient;
+      }
+    }
+
+    const leadCompany = normalizeMatchValue(lead.companyName);
+    const leadContact = normalizeMatchValue(lead.contactPerson);
+    const leadPhone = normalizeMatchValue(lead.phone);
+
+    return clients.find((client) => {
+      const clientCompany = normalizeMatchValue(client.company);
+      const clientContact = normalizeMatchValue(client.contactPerson);
+      const clientPhone = normalizeMatchValue(client.phone);
+
+      if (leadCompany && clientCompany && leadCompany === clientCompany) {
+        return true;
+      }
+
+      if (leadPhone && clientPhone && leadPhone === clientPhone) {
+        return true;
+      }
+
+      return Boolean(
+        leadCompany &&
+        leadContact &&
+        clientCompany &&
+        clientContact &&
+        leadCompany === clientCompany &&
+        leadContact === clientContact,
+      );
+    });
+  }
+
+  function generateNextClientId(): string {
+    const allClients = getClients();
+    let maxNumber = 0;
+
+    allClients.forEach((client) => {
+      const match = String(client.id || "").match(/^CL-(\d+)$/i);
+      if (match) {
+        maxNumber = Math.max(maxNumber, Number(match[1]));
+      }
+    });
+
+    return `CL-${String(maxNumber + 1).padStart(3, "0")}`;
+  }
+
+  async function ensureClientForLead(lead: Lead): Promise<Client | null> {
+    const existingClient = findClientForLead(lead);
+
+    if (existingClient) {
+      return existingClient;
+    }
+
+    const company = String(lead.companyName || lead.contactPerson || "").trim();
+
+    if (!company) {
+      return null;
+    }
+
+    const newClient: Client = {
+      id: generateNextClientId(),
+      company,
+      contactPerson: String(lead.contactPerson || "").trim(),
+      phone: String(lead.phone || "").trim(),
+      email: String(lead.email || "").trim(),
+      address: String(lead.address || "").trim(),
+      gst: "",
+      services: String(lead.interestedService || "").trim(),
+      status: "Active",
+      archived: false,
+    };
+
+    await addClient(newClient);
+
+    const refreshedClients = getClients();
+    setClients(refreshedClients);
+
+    return (
+      refreshedClients.find((client) => client.id === newClient.id) || newClient
+    );
+  }
+
   const [leads, setLeads] = useState<Lead[]>([]);
+
   const [selectedInitialLead, setSelectedInitialLead] = useState<Lead | null>(
     null,
   );
 
   const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
+
   const [loadingLeads, setLoadingLeads] = useState(true);
 
   /* =======================================================
+
      LOAD SERVICES
+
   ======================================================= */
 
   useEffect(() => {
@@ -218,7 +364,9 @@ export default function AddQuotation() {
   }, []);
 
   /* =======================================================
+
      LOAD LEADS
+
   ======================================================= */
 
   useEffect(() => {
@@ -256,7 +404,9 @@ export default function AddQuotation() {
   }, []);
 
   /* =======================================================
+
      LOAD SALES PERSONS
+
   ======================================================= */
 
   useEffect(() => {
@@ -292,13 +442,17 @@ export default function AddQuotation() {
   }, []);
 
   /* =======================================================
+
      URL PREFILL
+
   ======================================================= */
 
   const initialLeadId = searchParams.get("leadId") || "";
 
   /* =======================================================
+
      LOAD INITIAL LEAD
+
   ======================================================= */
 
   useEffect(() => {
@@ -307,6 +461,7 @@ export default function AddQuotation() {
     async function loadInitialLead() {
       if (!initialLeadId) {
         setSelectedInitialLead(null);
+
         return;
       }
 
@@ -333,16 +488,21 @@ export default function AddQuotation() {
   }, [initialLeadId]);
 
   /* =======================================================
+
      FORM STATE
+
   ======================================================= */
 
   const [clientId, setClientId] = useState("");
+
   const [leadId, setLeadId] = useState(initialLeadId);
+
   const [salesPersonId, setSalesPersonId] = useState("");
 
   const [quotationDate, setQuotationDate] = useState(getToday());
 
   const [validUntil, setValidUntil] = useState("");
+
   const [status, setStatus] = useState<QuotationStatus>("Draft");
 
   const [items, setItems] = useState<QuotationItem[]>([emptyItem()]);
@@ -350,21 +510,29 @@ export default function AddQuotation() {
   const [tax, setTax] = useState(18);
 
   /* =======================================================
+
      MORE DETAILS
+
   ======================================================= */
 
   const [showMoreDetails, setShowMoreDetails] = useState(false);
 
   const [scopeOfWork, setScopeOfWork] = useState("");
+
   const [implementationProcess, setImplementationProcess] = useState("");
+
   const [supportTraining, setSupportTraining] = useState("");
+
   const [remarks, setRemarks] = useState("");
+
   const [termsConditions, setTermsConditions] = useState("");
 
   const [error, setError] = useState("");
 
   /* =======================================================
+
      LAST QUOTATION PREFILL
+
   ======================================================= */
 
   useEffect(() => {
@@ -430,26 +598,38 @@ export default function AddQuotation() {
   }, []);
 
   /* =======================================================
+
      INITIAL LEAD CLIENT PREFILL
+
   ======================================================= */
 
   useEffect(() => {
-    if (!selectedInitialLead?.convertedClientId) {
+    if (!selectedInitialLead) {
       return;
     }
 
-    const convertedClient = clients.find(
-      (client) =>
-        String(client.id) === String(selectedInitialLead.convertedClientId),
-    );
-
-    if (convertedClient) {
-      setClientId(String(convertedClient.id));
-    }
+    void ensureClientForLead(selectedInitialLead)
+      .then((matchingClient) => {
+        if (matchingClient) {
+          setClientId(String(matchingClient.id));
+          setError("");
+        } else {
+          setClientId("");
+          setError(
+            "This lead does not contain enough information to create a client.",
+          );
+        }
+      })
+      .catch((loadError) => {
+        console.error("Failed to create client from lead:", loadError);
+        setError("Failed to prepare the lead as a client. Please try again.");
+      });
   }, [selectedInitialLead, clients]);
 
   /* =======================================================
+
      SELECTED RECORDS
+
   ======================================================= */
 
   const selectedClient = clients.find(
@@ -463,16 +643,21 @@ export default function AddQuotation() {
   );
 
   const clientName = selectedClient?.company || "";
+
   const leadName = selectedLead?.companyName || "";
 
   /* =======================================================
+
      TOTALS
+
   ======================================================= */
 
   const totals = calculateQuotationTotals(items, tax);
 
   /* =======================================================
+
      LEAD CHANGE
+
   ======================================================= */
 
   async function handleLeadChange(value: string) {
@@ -489,14 +674,16 @@ export default function AddQuotation() {
         return;
       }
 
-      if (lead.convertedClientId) {
-        const convertedClient = clients.find(
-          (client) => String(client.id) === String(lead.convertedClientId),
-        );
+      const matchingClient = await ensureClientForLead(lead);
 
-        if (convertedClient) {
-          setClientId(String(convertedClient.id));
-        }
+      if (matchingClient) {
+        setClientId(String(matchingClient.id));
+        setError("");
+      } else {
+        setClientId("");
+        setError(
+          "This lead does not contain enough information to create a client.",
+        );
       }
     } catch (error) {
       console.error("Failed to load selected lead:", error);
@@ -504,7 +691,9 @@ export default function AddQuotation() {
   }
 
   /* =======================================================
+
      SERVICE CHANGE
+
   ======================================================= */
 
   function handleServiceChange(index: number, serviceId: string) {
@@ -535,12 +724,19 @@ export default function AddQuotation() {
 
         return {
           ...item,
+
           serviceId: String(service.id),
+
           description,
+
           sac,
+
           basicCost,
+
           discountedCost: 0,
+
           finalCost: basicCost,
+
           frequency,
         };
       }),
@@ -548,7 +744,9 @@ export default function AddQuotation() {
   }
 
   /* =======================================================
+
      DESCRIPTION CHANGE
+
   ======================================================= */
 
   function handleDescriptionChange(index: number, value: string) {
@@ -557,6 +755,7 @@ export default function AddQuotation() {
         itemIndex === index
           ? {
               ...item,
+
               description: value,
             }
           : item,
@@ -565,7 +764,9 @@ export default function AddQuotation() {
   }
 
   /* =======================================================
+
      DISCOUNT CHANGE
+
   ======================================================= */
 
   function handleDiscountChange(index: number, value: string) {
@@ -583,7 +784,9 @@ export default function AddQuotation() {
 
         return {
           ...item,
+
           discountedCost: actualDiscount,
+
           finalCost: Math.max(0, basicCost - actualDiscount),
         };
       }),
@@ -591,7 +794,9 @@ export default function AddQuotation() {
   }
 
   /* =======================================================
+
      ADD ITEM
+
   ======================================================= */
 
   function addItem() {
@@ -599,7 +804,9 @@ export default function AddQuotation() {
   }
 
   /* =======================================================
+
      REMOVE ITEM
+
   ======================================================= */
 
   function removeItem(index: number) {
@@ -613,7 +820,9 @@ export default function AddQuotation() {
   }
 
   /* =======================================================
+
      SUBMIT
+
   ======================================================= */
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -622,36 +831,45 @@ export default function AddQuotation() {
     setError("");
 
     /* -----------------------------------------------------
+
        VALIDATION
+
     ----------------------------------------------------- */
 
     if (!clientId) {
       setError("Please select a client.");
+
       return;
     }
 
     if (!selectedClient) {
       setError("Selected client could not be found.");
+
       return;
     }
 
     if (!quotationDate) {
       setError("Please select quotation date.");
+
       return;
     }
 
     if (validUntil && validUntil < quotationDate) {
       setError("Valid Until date cannot be before quotation date.");
+
       return;
     }
 
     if (items.length === 0 || items.some((item) => !item.serviceId)) {
       setError("Please select a service for every row.");
+
       return;
     }
 
     /* -----------------------------------------------------
+
        CLEAN ITEMS
+
     ----------------------------------------------------- */
 
     const cleanedItems = items.map((item) => {
@@ -659,6 +877,7 @@ export default function AddQuotation() {
 
       const discountedCost = Math.min(
         basicCost,
+
         Math.max(0, Number(item.discountedCost) || 0),
       );
 
@@ -666,42 +885,61 @@ export default function AddQuotation() {
 
       return {
         ...item,
+
         basicCost,
+
         discountedCost,
+
         finalCost,
       };
     });
 
     /* -----------------------------------------------------
+
        FINAL TOTALS
+
     ----------------------------------------------------- */
 
     const finalTotals = calculateQuotationTotals(cleanedItems, tax);
 
     /* -----------------------------------------------------
+
        QUOTATION NUMBER
+
     ----------------------------------------------------- */
 
     try {
       /*
+
        * Quotation number is generated by the Supabase-backed
+
        * quotation store. This prevents LocalStorage from being
+
        * the source of truth for numbering.
+
        */
+
       const quotationNumber = await generateQuotationNumber();
 
       /* -----------------------------------------------------
+
        CREATE QUOTATION
+
     ----------------------------------------------------- */
 
       const now = new Date().toISOString();
 
       const quotation: Quotation = {
         /*
+
          * Supabase generates the real numeric quotation ID.
+
          * The CRM QT-xxx ID generated here is only a compatibility
+
          * value and is ignored by the store on insert.
+
          */
+
         id: await generateQuotationId(),
 
         leadId: leadId || undefined,
@@ -748,19 +986,27 @@ export default function AddQuotation() {
       };
 
       /* -----------------------------------------------------
+
        SAVE
+
     ----------------------------------------------------- */
 
       const savedQuotation = await addQuotation(quotation);
 
+      await playSound("success");
+
       /* -----------------------------------------------------
+
        UPDATE NUMBER SETTINGS
+
     ----------------------------------------------------- */
 
       incrementQuotationNumber(savedQuotation.quotationNumber);
 
       /* -----------------------------------------------------
+
        NAVIGATE
+
     ----------------------------------------------------- */
 
       navigate("/quotations");
@@ -776,13 +1022,17 @@ export default function AddQuotation() {
   }
 
   /* =======================================================
+
      RENDER
+
   ======================================================= */
 
   return (
     <div className="mx-auto w-full max-w-[1200px] min-w-0 space-y-4 pb-8 sm:space-y-6">
       {/* =================================================
+
           HEADER
+
       ================================================= */}
 
       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -806,7 +1056,9 @@ export default function AddQuotation() {
       </div>
 
       {/* =================================================
+
           ERROR
+
       ================================================= */}
 
       {error && (
@@ -817,7 +1069,9 @@ export default function AddQuotation() {
 
       <form onSubmit={handleSubmit} className="min-w-0">
         {/* =================================================
+
             BASIC INFORMATION
+
         ================================================= */}
 
         <section className="mb-4 min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm sm:mb-6">
@@ -978,7 +1232,9 @@ export default function AddQuotation() {
         </section>
 
         {/* =================================================
+
             SERVICES
+
         ================================================= */}
 
         <section className="mb-4 min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm sm:mb-6">
@@ -1150,7 +1406,9 @@ export default function AddQuotation() {
           </div>
 
           {/* =================================================
+
               TOTALS
+
           ================================================= */}
 
           <div className="border-t border-gray-100 p-4 sm:p-6">
@@ -1174,6 +1432,7 @@ export default function AddQuotation() {
                     setTax(
                       Math.min(
                         100,
+
                         Math.max(0, Number(event.target.value) || 0),
                       ),
                     )
@@ -1194,7 +1453,9 @@ export default function AddQuotation() {
         </section>
 
         {/* =================================================
+
             MORE DETAILS
+
         ================================================= */}
 
         <section className="mb-4 min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm sm:mb-6">
@@ -1304,7 +1565,9 @@ export default function AddQuotation() {
         </section>
 
         {/* =================================================
+
             ACTIONS
+
         ================================================= */}
 
         <div className="mb-6 flex flex-col gap-3 sm:mb-10 sm:flex-row">

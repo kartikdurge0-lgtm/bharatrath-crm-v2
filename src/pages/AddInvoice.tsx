@@ -19,6 +19,7 @@ import SearchableClientSelect from "../components/SearchableClientSelect";
 import { getServices } from "../data/serviceStore";
 
 import { getQuotation, type Quotation } from "../data/quotationStore";
+import { playSound } from "../audio/soundManager";
 
 /* =========================================================
    HELPERS
@@ -694,6 +695,8 @@ export default function AddInvoice() {
 
         notes,
       });
+
+      await playSound("success");
 
       /* ---------------------------------------------------
          NAVIGATE TO CREATED INVOICE

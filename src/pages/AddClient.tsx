@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { playSound } from "../audio/soundManager";
 
 import {
   addClient,
@@ -449,6 +450,8 @@ export default function AddClient() {
           );
         }
       }
+
+      await playSound("success");
 
       /* =================================================
          8. OPEN CREATED CLIENT

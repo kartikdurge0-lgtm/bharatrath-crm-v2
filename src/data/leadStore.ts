@@ -1,8 +1,11 @@
 import { supabase } from "../lib/supabase";
+
 import { createActivityLog } from "./activityLogStore";
 
 /* =========================================================
+
    LEAD TYPES
+
 ========================================================= */
 
 export type LeadStatus =
@@ -34,114 +37,171 @@ export type CommissionStatus =
   | "Paid";
 
 /* =========================================================
+
    LEAD
+
 ========================================================= */
 
 export type Lead = {
   id: string;
 
   companyName: string;
+
   contactPerson: string;
+
   phone: string;
+
   email: string;
+
   address: string;
 
   leadSource: LeadSource;
+
   sourceDetails: string;
 
   assignedTo: string;
+
   followUpAssignedTo: string;
 
   referencePersonName: string;
+
   referencePersonPhone: string;
+
   referencePersonEmail: string;
 
   commissionApplicable: boolean;
+
   commissionPercent: number;
+
   commissionAmount: number;
+
   commissionStatus: CommissionStatus;
+
   commissionPaidDate?: string;
 
   requirement: string;
+
   interestedService: string;
 
   priority: LeadPriority;
+
   status: LeadStatus;
 
   expectedValue: number;
+
   expectedClosingDate: string;
 
   notes: string;
+
   internalNotes: string;
 
   nextFollowUpDate: string;
+
   nextFollowUpTime: string;
+
   nextAction: string;
 
   createdAt: string;
+
   updatedAt?: string;
 
+  isArchived?: boolean;
+  archivedAt?: string;
+
   /*
+
    * IMPORTANT:
+
    *
+
    * Frontend always uses CRM Client ID:
+
    *
+
    * CL-001
+
    * CL-002
+
    * CL-005
+
    *
+
    * Database stores numeric clients.id in
+
    * leads.converted_client_id.
+
    */
+
   convertedAt?: string;
+
   convertedClientId?: string;
 
   lostReason?: string;
 };
 
 /* =========================================================
+
    DATABASE ROW
+
 ========================================================= */
 
 type LeadRow = {
   id: number;
 
   company_name: string;
+
   contact_person: string | null;
+
   phone: string | null;
+
   email: string | null;
+
   address: string | null;
 
   lead_source: string | null;
+
   source_details: string | null;
 
   assigned_to_id: number | null;
+
   follow_up_assigned_to_id: number | null;
 
   reference_person_name: string | null;
+
   reference_person_phone: string | null;
+
   reference_person_email: string | null;
 
   commission_applicable: boolean;
+
   commission_percent: number | null;
+
   commission_amount: number | null;
+
   commission_status: string | null;
+
   commission_paid_date: string | null;
 
   requirement: string | null;
+
   interested_service: string | null;
 
   priority: string;
+
   status: string;
 
   expected_value: number | null;
+
   expected_closing_date: string | null;
 
   notes: string | null;
+
   internal_notes: string | null;
 
   next_follow_up_date: string | null;
+
   next_follow_up_time: string | null;
+
   next_action: string | null;
 
   created_by: string | null;
@@ -149,30 +209,48 @@ type LeadRow = {
   converted_at: string | null;
 
   /*
+
    * Supabase:
+
    *
+
    * BIGINT
+
    * FK -> clients.id
+
    */
+
   converted_client_id: number | null;
 
   lost_reason: string | null;
 
   created_at: string;
+
   updated_at: string;
+
+  is_archived: boolean | null;
+
+  archived_at: string | null;
+
+  archived_by: string | null;
 };
 
 /* =========================================================
+
    CLIENT RELATION ROW
+
 ========================================================= */
 
 type ClientRelationRow = {
   id: number;
+
   crm_client_id: string | null;
 };
 
 /* =========================================================
+
    SALES PERSON HELPERS
+
 ========================================================= */
 
 function displaySalesPersonId(id: number | null): string {
@@ -198,25 +276,41 @@ function databaseSalesPersonId(displayId: string): number | null {
 }
 
 /* =========================================================
+
    CLIENT CONVERSION HELPERS
+
 ========================================================= */
 
 /*
+
  * FRONTEND
+
  * --------
+
  * convertedClientId = "CL-005"
+
  *
+
  * DATABASE
+
  * --------
+
  * leads.converted_client_id = 45
+
  *
+
  * clients:
+
  * id = 45
+
  * crm_client_id = "CL-005"
+
  */
 
 /* ---------------------------------------------------------
+
    CRM CLIENT ID → SUPABASE CLIENT ID
+
 --------------------------------------------------------- */
 
 async function getSupabaseClientIdByCrmClientId(
@@ -229,9 +323,13 @@ async function getSupabaseClientIdByCrmClientId(
   }
 
   const { data, error } = await supabase
+
     .from("clients")
+
     .select("id")
+
     .eq("crm_client_id", normalizedId)
+
     .maybeSingle();
 
   if (error) {
@@ -256,7 +354,9 @@ async function getSupabaseClientIdByCrmClientId(
 }
 
 /* ---------------------------------------------------------
+
    SUPABASE CLIENT ID → CRM CLIENT ID
+
 --------------------------------------------------------- */
 
 async function getCrmClientIdBySupabaseClientId(
@@ -269,9 +369,13 @@ async function getCrmClientIdBySupabaseClientId(
   }
 
   const { data, error } = await supabase
+
     .from("clients")
+
     .select("crm_client_id")
+
     .eq("id", databaseId)
+
     .maybeSingle();
 
   if (error) {
@@ -288,7 +392,9 @@ async function getCrmClientIdBySupabaseClientId(
 }
 
 /* ---------------------------------------------------------
+
    BULK CLIENT ID RESOLUTION
+
 --------------------------------------------------------- */
 
 async function getCrmClientIdMap(
@@ -305,8 +411,11 @@ async function getCrmClientIdMap(
   }
 
   const { data, error } = await supabase
+
     .from("clients")
+
     .select("id, crm_client_id")
+
     .in("id", uniqueIds);
 
   if (error) {
@@ -327,7 +436,9 @@ async function getCrmClientIdMap(
 }
 
 /* =========================================================
+
    DATABASE → LEAD
+
 ========================================================= */
 
 function toLead(row: LeadRow, convertedClientId?: string): Lead {
@@ -395,16 +506,27 @@ function toLead(row: LeadRow, convertedClientId?: string): Lead {
 
     updatedAt: row.updated_at,
 
+    isArchived: row.is_archived ?? false,
+    archivedAt: row.archived_at ?? undefined,
+
     convertedAt: row.converted_at ?? undefined,
 
     /*
+
      * IMPORTANT:
+
      *
+
      * Never expose numeric Supabase ID here.
+
      *
+
      * Frontend gets:
+
      * CL-005
+
      */
+
     convertedClientId,
 
     lostReason: row.lost_reason ?? undefined,
@@ -412,12 +534,16 @@ function toLead(row: LeadRow, convertedClientId?: string): Lead {
 }
 
 /* =========================================================
+
    CONVERT DATABASE ROWS TO LEADS
+
 ========================================================= */
 
 async function convertLeadRowsToLeads(rows: LeadRow[]): Promise<Lead[]> {
   const convertedClientIds = rows
+
     .map((row) => row.converted_client_id)
+
     .filter((id): id is number => id !== null && Number.isFinite(Number(id)));
 
   const clientMap = await getCrmClientIdMap(convertedClientIds);
@@ -433,13 +559,18 @@ async function convertLeadRowsToLeads(rows: LeadRow[]): Promise<Lead[]> {
 }
 
 /* =========================================================
+
    GET ALL LEADS
+
 ========================================================= */
 
 export async function getLeads(): Promise<Lead[]> {
   const { data, error } = await supabase
+
     .from("leads")
+
     .select("*")
+
     .order("created_at", {
       ascending: false,
     });
@@ -450,24 +581,37 @@ export async function getLeads(): Promise<Lead[]> {
     throw error;
   }
 
-  return convertLeadRowsToLeads((data ?? []) as LeadRow[]);
+  const activeRows = ((data ?? []) as LeadRow[]).filter(
+    (row) => row.is_archived !== true,
+  );
+
+  return convertLeadRowsToLeads(activeRows);
 }
 
 /* =========================================================
+
    BACKWARD COMPATIBILITY
+
 ========================================================= */
 
 export async function saveLeads(_leads: Lead[]): Promise<void> {
   /*
+
    * Leads are stored directly in Supabase.
+
    *
+
    * Function intentionally kept so existing pages
+
    * do not break.
+
    */
 }
 
 /* =========================================================
+
    GET SINGLE LEAD
+
 ========================================================= */
 
 export async function getLead(id: string): Promise<Lead | null> {
@@ -486,9 +630,13 @@ export async function getLead(id: string): Promise<Lead | null> {
   }
 
   const { data, error } = await supabase
+
     .from("leads")
+
     .select("*")
+
     .eq("id", databaseId)
+
     .maybeSingle();
 
   if (error) {
@@ -503,6 +651,10 @@ export async function getLead(id: string): Promise<Lead | null> {
 
   const row = data as LeadRow;
 
+  if (row.is_archived === true) {
+    return null;
+  }
+
   let crmClientId: string | undefined;
 
   if (row.converted_client_id !== null) {
@@ -516,20 +668,29 @@ export async function getLead(id: string): Promise<Lead | null> {
 }
 
 /* =========================================================
+
    GENERATE LEAD ID
+
 ========================================================= */
 
 export function generateLeadId(): string {
   /*
+
    * Supabase generates the real numeric ID.
+
    *
+
    * This function is retained for existing UI code.
+
    */
+
   return "LEAD-NEW";
 }
 
 /* =========================================================
+
    ADD LEAD
+
 ========================================================= */
 
 export async function addLead(lead: Lead): Promise<Lead> {
@@ -542,7 +703,9 @@ export async function addLead(lead: Lead): Promise<Lead> {
   }
 
   /* -------------------------------------------------------
+
      RESOLVE CONVERTED CLIENT
+
   ------------------------------------------------------- */
 
   let convertedClientDatabaseId: number | null = null;
@@ -560,11 +723,15 @@ export async function addLead(lead: Lead): Promise<Lead> {
   }
 
   /* -------------------------------------------------------
+
      INSERT
+
   ------------------------------------------------------- */
 
   const { data, error } = await supabase
+
     .from("leads")
+
     .insert({
       company_name: lead.companyName,
 
@@ -629,13 +796,22 @@ export async function addLead(lead: Lead): Promise<Lead> {
       converted_at: lead.convertedAt || null,
 
       /*
+
        * DATABASE GETS NUMERIC FK
+
        */
+
       converted_client_id: convertedClientDatabaseId,
 
       lost_reason: lead.lostReason || null,
+
+      is_archived: false,
+      archived_at: null,
+      archived_by: null,
     })
+
     .select("*")
+
     .single();
 
   if (error) {
@@ -658,7 +834,9 @@ export async function addLead(lead: Lead): Promise<Lead> {
   const createdLead = toLead(createdRow, createdConvertedClientId);
 
   /* -------------------------------------------------------
+
      ACTIVITY HISTORY
+
   ------------------------------------------------------- */
 
   await createActivityLog({
@@ -699,11 +877,14 @@ export async function addLead(lead: Lead): Promise<Lead> {
 }
 
 /* =========================================================
+
    UPDATE LEAD
+
 ========================================================= */
 
 export async function updateLead(
   id: string,
+
   updates: Partial<Lead>,
 ): Promise<Lead | null> {
   const normalizedId = String(id || "").trim();
@@ -721,7 +902,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      GET OLD RECORD
+
   ------------------------------------------------------- */
 
   const existingLead = await getLead(normalizedId);
@@ -733,7 +916,9 @@ export async function updateLead(
   const dbUpdates: Record<string, unknown> = {};
 
   /* -------------------------------------------------------
+
      BASIC DETAILS
+
   ------------------------------------------------------- */
 
   if (updates.companyName !== undefined) {
@@ -757,7 +942,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      SOURCE
+
   ------------------------------------------------------- */
 
   if (updates.leadSource !== undefined) {
@@ -769,7 +956,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      ASSIGNMENT
+
   ------------------------------------------------------- */
 
   if (updates.assignedTo !== undefined) {
@@ -783,7 +972,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      REFERENCE
+
   ------------------------------------------------------- */
 
   if (updates.referencePersonName !== undefined) {
@@ -799,7 +990,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      COMMISSION
+
   ------------------------------------------------------- */
 
   if (updates.commissionApplicable !== undefined) {
@@ -825,7 +1018,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      REQUIREMENT
+
   ------------------------------------------------------- */
 
   if (updates.requirement !== undefined) {
@@ -837,7 +1032,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      STATUS / PRIORITY
+
   ------------------------------------------------------- */
 
   if (updates.priority !== undefined) {
@@ -849,7 +1046,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      VALUE / CLOSING
+
   ------------------------------------------------------- */
 
   if (updates.expectedValue !== undefined) {
@@ -861,7 +1060,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      NOTES
+
   ------------------------------------------------------- */
 
   if (updates.notes !== undefined) {
@@ -873,7 +1074,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      FOLLOW-UP
+
   ------------------------------------------------------- */
 
   if (updates.nextFollowUpDate !== undefined) {
@@ -889,7 +1092,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      CONVERSION DATE
+
   ------------------------------------------------------- */
 
   if (updates.convertedAt !== undefined) {
@@ -897,7 +1102,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      CONVERTED CLIENT
+
   ------------------------------------------------------- */
 
   if (updates.convertedClientId !== undefined) {
@@ -905,15 +1112,25 @@ export async function updateLead(
       dbUpdates.converted_client_id = null;
     } else {
       /*
+
        * IMPORTANT:
+
        *
+
        * Do NOT do:
+
        *
+
        * Number("CL-005")
+
        *
+
        * Instead resolve:
+
        *
+
        * CL-005 → clients.id
+
        */
 
       const clientDatabaseId = await getSupabaseClientIdByCrmClientId(
@@ -931,7 +1148,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      LOST REASON
+
   ------------------------------------------------------- */
 
   if (updates.lostReason !== undefined) {
@@ -939,7 +1158,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      NOTHING TO UPDATE
+
   ------------------------------------------------------- */
 
   if (Object.keys(dbUpdates).length === 0) {
@@ -947,14 +1168,21 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      UPDATE DATABASE
+
   ------------------------------------------------------- */
 
   const { data, error } = await supabase
+
     .from("leads")
+
     .update(dbUpdates)
+
     .eq("id", databaseId)
+
     .select("*")
+
     .single();
 
   if (error) {
@@ -966,7 +1194,9 @@ export async function updateLead(
   const updatedRow = data as LeadRow;
 
   /* -------------------------------------------------------
+
      RESOLVE CONVERTED CLIENT
+
   ------------------------------------------------------- */
 
   let updatedConvertedClientId: string | undefined;
@@ -981,7 +1211,9 @@ export async function updateLead(
   const updatedLead = toLead(updatedRow, updatedConvertedClientId);
 
   /* -------------------------------------------------------
+
      ACTIVITY TYPE
+
   ------------------------------------------------------- */
 
   let activityAction = "UPDATE";
@@ -989,7 +1221,9 @@ export async function updateLead(
   let activityDescription = `Updated lead "${updatedLead.companyName}"`;
 
   /* -------------------------------------------------------
+
      STATUS CHANGE
+
   ------------------------------------------------------- */
 
   if (updates.status !== undefined && updates.status !== existingLead.status) {
@@ -999,7 +1233,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      LEAD WON
+
   ------------------------------------------------------- */
 
   if (updates.status === "Won" && existingLead.status !== "Won") {
@@ -1009,7 +1245,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      LEAD LOST
+
   ------------------------------------------------------- */
 
   if (updates.status === "Lost" && existingLead.status !== "Lost") {
@@ -1021,7 +1259,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      COMMISSION PAID
+
   ------------------------------------------------------- */
 
   if (
@@ -1034,7 +1274,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      CLIENT CONVERSION
+
   ------------------------------------------------------- */
 
   if (
@@ -1047,7 +1289,9 @@ export async function updateLead(
   }
 
   /* -------------------------------------------------------
+
      ACTIVITY HISTORY
+
   ------------------------------------------------------- */
 
   await createActivityLog({
@@ -1126,11 +1370,14 @@ export async function updateLead(
 }
 
 /* =========================================================
+
    UPDATE STATUS
+
 ========================================================= */
 
 export async function updateLeadStatus(
   id: string,
+
   status: LeadStatus,
 ): Promise<Lead | null> {
   return updateLead(id, {
@@ -1139,11 +1386,14 @@ export async function updateLeadStatus(
 }
 
 /* =========================================================
+
    COMMISSION CALCULATION
+
 ========================================================= */
 
 export function calculateCommission(
   expectedValue: number,
+
   commissionPercent: number,
 ): number {
   if (!Number.isFinite(expectedValue) || !Number.isFinite(commissionPercent)) {
@@ -1154,12 +1404,16 @@ export function calculateCommission(
 }
 
 /* =========================================================
+
    UPDATE COMMISSION
+
 ========================================================= */
 
 export async function updateLeadCommission(
   id: string,
+
   commissionPercent: number,
+
   commissionApplicable: boolean,
 ): Promise<Lead | null> {
   const lead = await getLead(id);
@@ -1184,7 +1438,9 @@ export async function updateLeadCommission(
 }
 
 /* =========================================================
+
    MARK COMMISSION PAID
+
 ========================================================= */
 
 export async function markCommissionPaid(id: string): Promise<Lead | null> {
@@ -1196,23 +1452,38 @@ export async function markCommissionPaid(id: string): Promise<Lead | null> {
 }
 
 /* =========================================================
+
    MARK LEAD WON
+
 ========================================================= */
 
 export async function markLeadWon(id: string): Promise<Lead | null> {
   /*
+
    * IMPORTANT:
+
    *
+
    * Won does NOT mean converted to client.
+
    *
+
    * Therefore convertedAt is NOT set here.
+
    *
+
    * Actual conversion happens in AddClient.tsx:
+
    *
+
    * 1. Create Client
+
    * 2. Get real Supabase clients.id
+
    * 3. Update Lead converted_client_id
+
    * 4. Set converted_at
+
    */
 
   return updateLead(id, {
@@ -1221,11 +1492,14 @@ export async function markLeadWon(id: string): Promise<Lead | null> {
 }
 
 /* =========================================================
+
    MARK LEAD LOST
+
 ========================================================= */
 
 export async function markLeadLost(
   id: string,
+
   lostReason: string,
 ): Promise<Lead | null> {
   return updateLead(id, {
@@ -1236,53 +1510,59 @@ export async function markLeadLost(
 }
 
 /* =========================================================
+
    ARCHIVE LEAD
+
 ========================================================= */
 
 export async function deleteLead(id: string): Promise<boolean> {
-  /*
-   * Permanent deletion is intentionally disabled.
-   *
-   * Existing application behavior archives the lead
-   * by marking it Lost with reason "Archived".
-   *
-   * A dedicated archived column can be introduced later
-   * if the Leads database schema supports it.
-   */
+  const normalizedId = String(id || "").trim();
+  const match = normalizedId.match(/^LEAD-(\d+)$/);
+  if (!match) return false;
 
-  const lead = await getLead(id);
+  const databaseId = Number(match[1]);
+  if (!Number.isFinite(databaseId)) return false;
 
-  if (!lead) {
-    return false;
+  const { data: existingRow, error: existingError } = await supabase
+    .from("leads")
+    .select("*")
+    .eq("id", databaseId)
+    .eq("is_archived", false)
+    .maybeSingle();
+
+  if (existingError) {
+    console.error("Failed to load lead before archive:", existingError);
+    throw existingError;
   }
 
-  const databaseId = Number(String(id).replace("LEAD-", ""));
+  if (!existingRow) return false;
 
-  if (!Number.isFinite(databaseId)) {
-    return false;
-  }
+  const lead = existingRow as LeadRow;
+  const archivedAt = new Date().toISOString();
+  const { data: authData } = await supabase.auth.getUser();
+  const userId = authData.user?.id ?? null;
 
   const { data, error } = await supabase
     .from("leads")
     .update({
-      status: "Lost",
-
-      lost_reason: "Archived",
-
-      updated_at: new Date().toISOString(),
+      is_archived: true,
+      archived_at: archivedAt,
+      archived_by: userId,
+      updated_at: archivedAt,
     })
     .eq("id", databaseId)
+    .eq("is_archived", false)
     .select("*")
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error("Failed to archive lead:", error);
-
     throw error;
   }
 
-  const archivedRow = data as LeadRow;
+  if (!data) return false;
 
+  const archivedRow = data as LeadRow;
   let archivedConvertedClientId: string | undefined;
 
   if (archivedRow.converted_client_id !== null) {
@@ -1294,33 +1574,132 @@ export async function deleteLead(id: string): Promise<boolean> {
 
   const archivedLead = toLead(archivedRow, archivedConvertedClientId);
 
-  /* -------------------------------------------------------
-     ARCHIVE ACTIVITY
-  ------------------------------------------------------- */
-
-  await createActivityLog({
-    action: "ARCHIVE",
-
-    module: "Leads",
-
-    record_id: archivedLead.id,
-
-    record_name: archivedLead.companyName,
-
-    description: `Archived lead "${archivedLead.companyName}"`,
-
-    old_data: {
-      status: lead.status,
-
-      lostReason: lead.lostReason,
-    },
-
-    new_data: {
-      status: archivedLead.status,
-
-      lostReason: archivedLead.lostReason,
-    },
-  });
+  try {
+    await createActivityLog({
+      action: "ARCHIVE",
+      module: "Leads",
+      record_id: archivedLead.id,
+      record_name: archivedLead.companyName,
+      description: `Archived lead "${archivedLead.companyName}"`,
+      old_data: {
+        status: lead.status,
+        lostReason: lead.lost_reason,
+        isArchived: false,
+      },
+      new_data: {
+        status: archivedLead.status,
+        lostReason: archivedLead.lostReason,
+        isArchived: true,
+        archivedAt: archivedLead.archivedAt,
+      },
+    });
+  } catch (activityError) {
+    console.warn("Lead archived, but activity log failed:", activityError);
+  }
 
   return true;
+}
+
+/* =========================================================
+   RESTORE LEAD
+========================================================= */
+
+export async function restoreLead(id: string): Promise<boolean> {
+  const normalizedId = String(id || "").trim();
+  const match = normalizedId.match(/^LEAD-(\d+)$/);
+  if (!match) return false;
+
+  const databaseId = Number(match[1]);
+  if (!Number.isFinite(databaseId)) return false;
+
+  const { data: existingRow, error: existingError } = await supabase
+    .from("leads")
+    .select("*")
+    .eq("id", databaseId)
+    .eq("is_archived", true)
+    .maybeSingle();
+
+  if (existingError) {
+    console.error("Failed to load archived lead:", existingError);
+    throw existingError;
+  }
+
+  if (!existingRow) return false;
+
+  const lead = existingRow as LeadRow;
+  const restoredAt = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("leads")
+    .update({
+      is_archived: false,
+      archived_at: null,
+      archived_by: null,
+      updated_at: restoredAt,
+    })
+    .eq("id", databaseId)
+    .eq("is_archived", true)
+    .select("*")
+    .maybeSingle();
+
+  if (error) {
+    console.error("Failed to restore lead:", error);
+    throw error;
+  }
+
+  if (!data) return false;
+
+  const restoredRow = data as LeadRow;
+  let restoredConvertedClientId: string | undefined;
+
+  if (restoredRow.converted_client_id !== null) {
+    restoredConvertedClientId =
+      (await getCrmClientIdBySupabaseClientId(
+        Number(restoredRow.converted_client_id),
+      )) ?? undefined;
+  }
+
+  const restoredLead = toLead(restoredRow, restoredConvertedClientId);
+
+  try {
+    await createActivityLog({
+      action: "RESTORE",
+      module: "Leads",
+      record_id: restoredLead.id,
+      record_name: restoredLead.companyName,
+      description: `Restored lead "${restoredLead.companyName}"`,
+      old_data: {
+        isArchived: true,
+        archivedAt: lead.archived_at,
+      },
+      new_data: {
+        isArchived: false,
+        archivedAt: undefined,
+      },
+    });
+  } catch (activityError) {
+    console.warn("Lead restored, but activity log failed:", activityError);
+  }
+
+  return true;
+}
+
+/* =========================================================
+   GET ARCHIVED LEADS
+========================================================= */
+
+export async function getArchivedLeads(): Promise<Lead[]> {
+  const { data, error } = await supabase
+    .from("leads")
+    .select("*")
+    .eq("is_archived", true)
+    .order("archived_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Failed to load archived leads:", error);
+    throw error;
+  }
+
+  return convertLeadRowsToLeads((data ?? []) as LeadRow[]);
 }

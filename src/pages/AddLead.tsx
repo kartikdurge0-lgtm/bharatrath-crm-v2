@@ -13,6 +13,8 @@ import {
 
 import { getServices } from "../data/serviceStore";
 
+import { playSound } from "../audio/soundManager";
+
 const leadSources: LeadSource[] = [
   "Website",
   "WhatsApp",
@@ -400,6 +402,8 @@ export default function AddLead() {
       }
 
       console.log("Lead created:", insertedLead);
+
+      await playSound("success");
 
       navigate("/leads");
     } catch (err) {

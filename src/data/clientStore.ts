@@ -1,89 +1,145 @@
 import { createActivityLog } from "./activityLogStore";
+
 import { supabase } from "../lib/supabase";
 
 /* =========================================================
-   CLIENT TYPE
-========================================================= */
+
+   CLIENT TYPE
+
+\========================================================= */
 
 export type Client = {
   id: string;
 
   company: string;
-  contactPerson: string;
-  phone: string;
-  email: string;
-  address: string;
-  gst: string;
-  services: string;
-  status: string;
 
-  /*
-   * Soft archive.
-   *
-   * Clients are never permanently deleted.
-   */
+  contactPerson: string;
+
+  phone: string;
+
+  email: string;
+
+  address: string;
+
+  gst: string;
+
+  services: string;
+
+  status: string; /*
+
+   \* Soft archive.
+
+   \*
+
+   \* Clients are never permanently deleted.
+
+   */
+
   archived?: boolean;
 };
 
 /* =========================================================
-   DEFAULT CLIENTS
-   ---------------------------------------------------------
-   IMPORTANT:
-   These are legacy/local fallback records only.
 
-   They are NOT automatically pushed to Supabase.
-========================================================= */
+   DEFAULT CLIENTS
+
+   ---------------------------------------------------------
+
+   IMPORTANT:
+
+   These are legacy/local fallback records only.
+
+
+
+   They are NOT automatically pushed to Supabase.
+
+\========================================================= */
 
 export const defaultClients: Client[] = [
   {
     id: "CL-001",
+
     company: "ABC Agro Producer Company",
+
     contactPerson: "Rajesh Patil",
+
     phone: "+91 98765 43210",
+
     email: "contact@abcagro.com",
+
     address: "Pune, Maharashtra",
+
     gst: "27ABCDE1234F1Z5",
+
     services: "Website",
+
     status: "Active",
+
     archived: false,
   },
 
   {
     id: "CL-002",
+
     company: "Bharat FPO",
+
     contactPerson: "Amit Kumar",
+
     phone: "+91 98765 12345",
+
     email: "info@bharatfpo.com",
+
     address: "Bhubaneswar, Odisha",
+
     gst: "21ABCDE1234F1Z5",
+
     services: "POS + ERP",
+
     status: "Active",
+
     archived: false,
   },
 
   {
     id: "CL-003",
+
     company: "Maharashtra Foods",
+
     contactPerson: "Sneha Deshmukh",
+
     phone: "+91 99887 66554",
+
     email: "hello@mahafoods.com",
+
     address: "Nashik, Maharashtra",
+
     gst: "27XYZAB5678G1Z2",
+
     services: "Digital Marketing",
+
     status: "Active",
+
     archived: false,
   },
 
   {
     id: "CL-004",
+
     company: "Rural Mart",
+
     contactPerson: "Suresh Pawar",
+
     phone: "+91 97654 32109",
+
     email: "ruralmart@example.com",
+
     address: "Satara, Maharashtra",
+
     gst: "27LMNOP1234H1Z6",
+
     services: "Website + Hosting",
+
     status: "Pending",
+
     archived: false,
   },
 ];
@@ -91,8 +147,10 @@ export const defaultClients: Client[] = [
 const STORAGE_KEY = "crm-clients";
 
 /* =========================================================
-   NORMALIZE CLIENT
-========================================================= */
+
+   NORMALIZE CLIENT
+
+\========================================================= */
 
 function normalizeClient(client: Partial<Client>): Client {
   return {
@@ -121,26 +179,41 @@ function normalizeClient(client: Partial<Client>): Client {
 }
 
 /* =========================================================
-   LOCAL STORAGE
-   ---------------------------------------------------------
-   IMPORTANT:
-   LocalStorage is retained as a temporary client cache/
-   compatibility layer for the existing UI.
 
-   It is NOT automatically synchronized to Supabase.
-========================================================= */
+   LOCAL STORAGE
+
+   ---------------------------------------------------------
+
+   IMPORTANT:
+
+   LocalStorage is retained as a temporary client cache/
+
+   compatibility layer for the existing UI.
+
+
+
+   It is NOT automatically synchronized to Supabase.
+
+\========================================================= */
 
 export function getClients(): Client[] {
   const saved = localStorage.getItem(STORAGE_KEY);
 
   if (!saved) {
     /*
-     * Keep existing application behaviour for first load.
-     *
-     * IMPORTANT:
-     * This only initializes the browser cache.
-     * It does NOT write anything to Supabase.
-     */
+
+     \* Keep existing application behaviour for first load.
+
+     \*
+
+     \* IMPORTANT:
+
+     \* This only initializes the browser cache.
+
+     \* It does NOT write anything to Supabase.
+
+     */
+
     const normalizedDefaults = defaultClients.map(normalizeClient);
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedDefaults));
@@ -156,7 +229,9 @@ export function getClients(): Client[] {
     }
 
     return parsed
+
       .map((client) => normalizeClient(client as Partial<Client>))
+
       .filter((client) => Boolean(client.id));
   } catch (error) {
     console.error("Invalid local client data:", error);
@@ -170,30 +245,43 @@ export function getClients(): Client[] {
 }
 
 /* =========================================================
-   SAVE CLIENTS
-   ---------------------------------------------------------
-   Local cache only.
-========================================================= */
+
+   SAVE CLIENTS
+
+   ---------------------------------------------------------
+
+   Local cache only.
+
+\========================================================= */
 
 export function saveClients(clients: Client[]): void {
   localStorage.setItem(
     STORAGE_KEY,
+
     JSON.stringify(clients.map((client) => normalizeClient(client))),
   );
 }
 
 /* =========================================================
-   SUPABASE CLIENT DATA
-========================================================= */
+
+   SUPABASE CLIENT DATA
+
+\========================================================= */
 
 function getSupabaseClientData(client: Client) {
   return {
     /*
-     * CRM ID is the stable business identifier.
-     *
-     * Example:
-     * CL-005
-     */
+
+     \* CRM ID is the stable business identifier.
+
+     \*
+
+     \* Example:
+
+     \* CL-005
+
+     */
+
     crm_client_id: client.id,
 
     company_name: client.company,
@@ -206,67 +294,96 @@ function getSupabaseClientData(client: Client) {
 
     address: client.address || null,
 
-    gst_number: client.gst || null,
+    gst_number: client.gst || null /*
 
-    /*
-     * Existing database structure uses notes for the
-     * service summary stored by the CRM.
-     */
+     \* Existing database structure uses notes for the
+
+     \* service summary stored by the CRM.
+
+     */,
+
     notes: client.services || null,
 
-    status: client.status || "Active",
+    status: client.status || "Active" /*
 
-    /*
-     * Existing database column is is_archived.
-     */
+     \* Existing database column is is_archived.
+
+     */,
+
     is_archived: client.archived === true,
   };
 }
 
 /* =========================================================
-   SUPABASE CLIENT ROW HELPERS
-========================================================= */
+
+   SUPABASE CLIENT ROW HELPERS
+
+\========================================================= */
 
 type SupabaseClientRow = {
   id: number | string;
+
   crm_client_id?: string | null;
+
   company_name?: string | null;
+
   contact_person?: string | null;
+
   phone?: string | null;
+
   email?: string | null;
+
   address?: string | null;
+
   gst_number?: string | null;
+
   notes?: string | null;
+
   status?: string | null;
+
   is_archived?: boolean | null;
 };
 
 function mapSupabaseClientRow(row: SupabaseClientRow): Client {
   return normalizeClient({
     id: String(row.crm_client_id || `CL-${String(row.id).padStart(3, "0")}`),
+
     company: row.company_name || "",
+
     contactPerson: row.contact_person || "",
+
     phone: row.phone || "",
+
     email: row.email || "",
+
     address: row.address || "",
+
     gst: row.gst_number || "",
+
     services: row.notes || "",
+
     status: row.status || "Active",
+
     archived: row.is_archived === true,
   });
 }
 
 async function loadAllSupabaseClients(): Promise<Client[]> {
   const { data, error } = await supabase
+
     .from("clients")
+
     .select(
       "id, crm_client_id, company_name, contact_person, phone, email, address, gst_number, notes, status, is_archived",
     )
+
     .order("created_at", { ascending: false })
+
     .order("id", { ascending: false });
 
   if (error) {
     console.error("Failed to load clients from Supabase:", error);
+
     throw error;
   }
 
@@ -285,15 +402,20 @@ async function loadClientByCrmId(
   }
 
   const { data, error } = await supabase
+
     .from("clients")
+
     .select(
       "id, crm_client_id, company_name, contact_person, phone, email, address, gst_number, notes, status, is_archived",
     )
+
     .eq("crm_client_id", normalizedId)
+
     .maybeSingle();
 
   if (error) {
     console.error("Failed to load client by CRM ID:", error);
+
     throw error;
   }
 
@@ -307,23 +429,28 @@ function normalizePhone(value: string): string {
 function normalizeEmail(value: string): string {
   return String(value || "")
     .trim()
+
     .toLowerCase();
 }
 
 function normalizeCompany(value: string): string {
   return String(value || "")
     .trim()
+
     .toLowerCase();
 }
 
 async function findDuplicateClientInSupabase(
   client: Client,
+
   excludeCrmId?: string,
 ): Promise<Client | undefined> {
   const clients = await loadAllSupabaseClients();
 
   const phone = normalizePhone(client.phone);
+
   const email = normalizeEmail(client.email);
+
   const company = normalizeCompany(client.company);
 
   return clients.find((existing) => {
@@ -351,15 +478,24 @@ async function findDuplicateClientInSupabase(
 }
 
 /* =========================================================
-   GET SUPABASE CLIENT ID BY CRM ID
-   ---------------------------------------------------------
-   CRM:
-   CL-005
 
-   Supabase:
-   clients.id = 45
-   clients.crm_client_id = CL-005
-========================================================= */
+   GET SUPABASE CLIENT ID BY CRM ID
+
+   ---------------------------------------------------------
+
+   CRM:
+
+   CL-005
+
+
+
+   Supabase:
+
+   clients.id = 45
+
+   clients.crm_client_id = CL-005
+
+\========================================================= */
 
 export async function getSupabaseClientIdByCrmId(
   crmClientId: string,
@@ -371,9 +507,13 @@ export async function getSupabaseClientIdByCrmId(
   }
 
   const { data, error } = await supabase
+
     .from("clients")
+
     .select("id")
+
     .eq("crm_client_id", normalizedId)
+
     .maybeSingle();
 
   if (error) {
@@ -396,20 +536,34 @@ export async function getSupabaseClientIdByCrmId(
 }
 
 /* =========================================================
-   GET CRM CLIENT ID BY SUPABASE ID
-   ---------------------------------------------------------
-   Used by lead conversion mapping.
 
-   Supabase:
-   converted_client_id = 45
+   GET CRM CLIENT ID BY SUPABASE ID
 
-   Client:
-   id = 45
-   crm_client_id = CL-005
+   ---------------------------------------------------------
 
-   Frontend:
-   convertedClientId = CL-005
-========================================================= */
+   Used by lead conversion mapping.
+
+
+
+   Supabase:
+
+   converted_client_id = 45
+
+
+
+   Client:
+
+   id = 45
+
+   crm_client_id = CL-005
+
+
+
+   Frontend:
+
+   convertedClientId = CL-005
+
+\========================================================= */
 
 export async function getCrmClientIdBySupabaseId(
   supabaseClientId: number,
@@ -421,9 +575,13 @@ export async function getCrmClientIdBySupabaseId(
   }
 
   const { data, error } = await supabase
+
     .from("clients")
+
     .select("crm_client_id")
+
     .eq("id", databaseId)
+
     .maybeSingle();
 
   if (error) {
@@ -440,14 +598,22 @@ export async function getCrmClientIdBySupabaseId(
 }
 
 /* =========================================================
-   SYNC ONE CLIENT TO SUPABASE
-   ---------------------------------------------------------
-   IMPORTANT:
-   This function is ONLY called explicitly by a user
-   operation such as Add / Edit / Archive / Restore.
 
-   There is NO background bulk synchronization.
-========================================================= */
+   SYNC ONE CLIENT TO SUPABASE
+
+   ---------------------------------------------------------
+
+   IMPORTANT:
+
+   This function is ONLY called explicitly by a user
+
+   operation such as Add / Edit / Archive / Restore.
+
+
+
+   There is NO background bulk synchronization.
+
+\========================================================= */
 
 async function syncClientToSupabase(client: Client): Promise<number | null> {
   const normalizedClient = normalizeClient(client);
@@ -461,27 +627,34 @@ async function syncClientToSupabase(client: Client): Promise<number | null> {
   }
 
   try {
-    const clientData = getSupabaseClientData(normalizedClient);
+    const clientData =
+      getSupabaseClientData(
+        normalizedClient,
+      ); /* -----------------------------------------------------
 
-    /* -----------------------------------------------------
-       1. PRIMARY LOOKUP BY CRM CLIENT ID
-    ----------------------------------------------------- */
+       1. PRIMARY LOOKUP BY CRM CLIENT ID
+
+    ----------------------------------------------------- */
 
     const { data: existingByCrmId, error: crmLookupError } = await supabase
+
       .from("clients")
+
       .select("id, crm_client_id, company_name")
+
       .eq("crm_client_id", normalizedClient.id)
+
       .maybeSingle();
 
     if (crmLookupError) {
       console.error("Client CRM ID lookup error:", crmLookupError);
 
       throw crmLookupError;
-    }
+    } /* -----------------------------------------------------
 
-    /* -----------------------------------------------------
-       2. UPDATE EXISTING CLIENT BY CRM ID
-    ----------------------------------------------------- */
+       2. UPDATE EXISTING CLIENT BY CRM ID
+
+    ----------------------------------------------------- */
 
     if (existingByCrmId) {
       const databaseId = Number(existingByCrmId.id);
@@ -493,8 +666,11 @@ async function syncClientToSupabase(client: Client): Promise<number | null> {
       }
 
       const { error: updateError } = await supabase
+
         .from("clients")
+
         .update(clientData)
+
         .eq("id", databaseId);
 
       if (updateError) {
@@ -504,35 +680,47 @@ async function syncClientToSupabase(client: Client): Promise<number | null> {
       }
 
       return databaseId;
-    }
+    } /* -----------------------------------------------------
 
-    /* -----------------------------------------------------
-       3. LEGACY FALLBACK
-       -----------------------------------------------------
-       Some old production records may not yet have
-       crm_client_id.
+       3. LEGACY FALLBACK
 
-       We may use company_name ONLY when exactly one
-       matching record exists.
+       -----------------------------------------------------
 
-       If multiple records exist, we NEVER guess.
-    ----------------------------------------------------- */
+       Some old production records may not yet have
+
+       crm_client_id.
+
+
+
+       We may use company_name ONLY when exactly one
+
+       matching record exists.
+
+
+
+       If multiple records exist, we NEVER guess.
+
+    ----------------------------------------------------- */
 
     const { data: companyMatches, error: companyLookupError } = await supabase
+
       .from("clients")
+
       .select("id, crm_client_id, company_name")
+
       .eq("company_name", normalizedClient.company)
+
       .limit(2);
 
     if (companyLookupError) {
       console.error("Legacy client company lookup error:", companyLookupError);
 
       throw companyLookupError;
-    }
+    } /* -----------------------------------------------------
 
-    /* -----------------------------------------------------
-       4. EXACTLY ONE LEGACY MATCH
-    ----------------------------------------------------- */
+       4. EXACTLY ONE LEGACY MATCH
+
+    ----------------------------------------------------- */
 
     if (companyMatches && companyMatches.length === 1) {
       const existing = companyMatches[0];
@@ -546,8 +734,11 @@ async function syncClientToSupabase(client: Client): Promise<number | null> {
       }
 
       const { error: updateError } = await supabase
+
         .from("clients")
+
         .update(clientData)
+
         .eq("id", databaseId);
 
       if (updateError) {
@@ -562,11 +753,11 @@ async function syncClientToSupabase(client: Client): Promise<number | null> {
       );
 
       return databaseId;
-    }
+    } /* -----------------------------------------------------
 
-    /* -----------------------------------------------------
-       5. MULTIPLE LEGACY MATCHES
-    ----------------------------------------------------- */
+       5. MULTIPLE LEGACY MATCHES
+
+    ----------------------------------------------------- */
 
     if (companyMatches && companyMatches.length > 1) {
       console.warn(
@@ -576,16 +767,20 @@ async function syncClientToSupabase(client: Client): Promise<number | null> {
       );
 
       return null;
-    }
+    } /* -----------------------------------------------------
 
-    /* -----------------------------------------------------
-       6. CREATE NEW CLIENT
-    ----------------------------------------------------- */
+       6. CREATE NEW CLIENT
+
+    ----------------------------------------------------- */
 
     const { data: created, error: createError } = await supabase
+
       .from("clients")
+
       .insert(clientData)
+
       .select("id")
+
       .single();
 
     if (createError) {
@@ -613,13 +808,20 @@ async function syncClientToSupabase(client: Client): Promise<number | null> {
 }
 
 /* =========================================================
-   SUPABASE READ APIs
-   ---------------------------------------------------------
-   These APIs are the source-of-truth read path for pages
-   being migrated to Supabase. Existing synchronous APIs
-   above remain as a compatibility cache until each page is
-   migrated.
-========================================================= */
+
+   SUPABASE READ APIs
+
+   ---------------------------------------------------------
+
+   These APIs are the source-of-truth read path for pages
+
+   being migrated to Supabase. Existing synchronous APIs
+
+   above remain as a compatibility cache until each page is
+
+   migrated.
+
+\========================================================= */
 
 export async function getClientsFromSupabase(): Promise<Client[]> {
   return loadAllSupabaseClients();
@@ -627,11 +829,13 @@ export async function getClientsFromSupabase(): Promise<Client[]> {
 
 export async function getActiveClientsFromSupabase(): Promise<Client[]> {
   const clients = await loadAllSupabaseClients();
+
   return clients.filter((client) => client.archived !== true);
 }
 
 export async function getArchivedClientsFromSupabase(): Promise<Client[]> {
   const clients = await loadAllSupabaseClients();
+
   return clients.filter((client) => client.archived === true);
 }
 
@@ -642,11 +846,16 @@ export async function getClientByIdFromSupabase(
 }
 
 /* =========================================================
-   NEXT CRM CLIENT ID
-   ---------------------------------------------------------
-   Supabase is the source of truth and archived IDs are
-   included, so CRM IDs are never intentionally reused.
-========================================================= */
+
+   NEXT CRM CLIENT ID
+
+   ---------------------------------------------------------
+
+   Supabase is the source of truth and archived IDs are
+
+   included, so CRM IDs are never intentionally reused.
+
+\========================================================= */
 
 export async function generateNextClientId(): Promise<string> {
   const clients = await loadAllSupabaseClients();
@@ -671,8 +880,10 @@ export async function generateNextClientId(): Promise<string> {
 }
 
 /* =========================================================
-   ASYNC SUPABASE LOOKUPS
-========================================================= */
+
+   ASYNC SUPABASE LOOKUPS
+
+\========================================================= */
 
 export async function clientExistsInSupabase(id: string): Promise<boolean> {
   return Boolean(await loadClientByCrmId(id));
@@ -727,23 +938,34 @@ export async function getClientByCompanyFromSupabase(
 }
 
 /* =========================================================
-   REFRESH LOCAL COMPATIBILITY CACHE
-========================================================= */
+
+   REFRESH LOCAL COMPATIBILITY CACHE
+
+\========================================================= */
 
 export async function refreshClientCache(): Promise<Client[]> {
   const clients = await getClientsFromSupabase();
+
   saveClients(clients);
+
   return clients;
 }
 
 /* =========================================================
-   GET CLIENT BY CRM ID
-   ---------------------------------------------------------
-   Temporary compatibility API.
 
-   The page-level migration will later use Supabase
-   directly/through an async store API.
-========================================================= */
+   GET CLIENT BY CRM ID
+
+   ---------------------------------------------------------
+
+   Temporary compatibility API.
+
+
+
+   The page-level migration will later use Supabase
+
+   directly/through an async store API.
+
+\========================================================= */
 
 export function getClientById(id: string): Client | undefined {
   const normalizedId = String(id || "").trim();
@@ -758,8 +980,10 @@ export function getClientById(id: string): Client | undefined {
 }
 
 /* =========================================================
-   UPDATE CLIENT
-========================================================= */
+
+   UPDATE CLIENT
+
+\========================================================= */
 
 export async function updateClient(updatedClient: Client): Promise<void> {
   const normalizedClient = normalizeClient(updatedClient);
@@ -770,12 +994,14 @@ export async function updateClient(updatedClient: Client): Promise<void> {
 
   if (!normalizedClient.company && !normalizedClient.contactPerson) {
     throw new Error("Please enter company name or contact person.");
-  }
+  } /*
 
-  /*
-   * Supabase is the source of truth. Do not depend on the
-   * browser cache to decide whether the client exists.
-   */
+   \* Supabase is the source of truth. Do not depend on the
+
+   \* browser cache to decide whether the client exists.
+
+   */
+
   const existingClient = await loadClientByCrmId(normalizedClient.id);
 
   if (!existingClient) {
@@ -784,6 +1010,7 @@ export async function updateClient(updatedClient: Client): Promise<void> {
 
   const duplicate = await findDuplicateClientInSupabase(
     normalizedClient,
+
     existingClient.id,
   );
 
@@ -797,7 +1024,9 @@ export async function updateClient(updatedClient: Client): Promise<void> {
 
   const clientToSave: Client = {
     ...normalizedClient,
+
     id: existingClient.id,
+
     archived: normalizedClient.archived === true,
   };
 
@@ -807,11 +1036,12 @@ export async function updateClient(updatedClient: Client): Promise<void> {
     throw new Error(
       `Client "${clientToSave.id}" could not be safely linked to Supabase.`,
     );
-  }
+  } /*
 
-  /*
-   * LocalStorage is only a compatibility cache.
-   */
+   \* LocalStorage is only a compatibility cache.
+
+   */
+
   const cachedClients = getClients();
 
   if (cachedClients.some((client) => client.id === existingClient.id)) {
@@ -826,49 +1056,84 @@ export async function updateClient(updatedClient: Client): Promise<void> {
 
   void createActivityLog({
     action: "UPDATE",
+
     module: "Clients",
+
     record_id: clientToSave.id,
+
     record_name: clientToSave.company,
+
     description: `Updated client "${clientToSave.company}"`,
+
     old_data: {
       company: existingClient.company,
+
       contactPerson: existingClient.contactPerson,
+
       phone: existingClient.phone,
+
       email: existingClient.email,
+
       address: existingClient.address,
+
       gst: existingClient.gst,
+
       services: existingClient.services,
+
       status: existingClient.status,
+
       archived: existingClient.archived ?? false,
     },
+
     new_data: {
       company: clientToSave.company,
+
       contactPerson: clientToSave.contactPerson,
+
       phone: clientToSave.phone,
+
       email: clientToSave.email,
+
       address: clientToSave.address,
+
       gst: clientToSave.gst,
+
       services: clientToSave.services,
+
       status: clientToSave.status,
+
       archived: clientToSave.archived ?? false,
     },
   });
 }
 
 /* =========================================================
-   ADD CLIENT
-   ---------------------------------------------------------
-   IMPORTANT:
-   Returns the real Supabase clients.id.
 
-   Example:
-   CRM ID      = CL-005
-   Supabase ID = 45
+   ADD CLIENT
 
-   This is required because:
-   leads.converted_client_id
-   is a BIGINT FK to clients.id.
-========================================================= */
+   ---------------------------------------------------------
+
+   IMPORTANT:
+
+   Returns the real Supabase clients.id.
+
+
+
+   Example:
+
+   CRM ID      = CL-005
+
+   Supabase ID = 45
+
+
+
+   This is required because:
+
+   leads.converted_client_id
+
+   is a BIGINT FK to clients.id.
+
+\========================================================= */
 
 export async function addClient(client: Client): Promise<number> {
   const normalizedClient = normalizeClient(client);
@@ -879,21 +1144,24 @@ export async function addClient(client: Client): Promise<number> {
 
   if (!normalizedClient.company && !normalizedClient.contactPerson) {
     throw new Error("Please enter company name or contact person.");
-  }
+  } /*
 
-  /*
-   * CRM ID uniqueness is checked against Supabase.
-   */
+   \* CRM ID uniqueness is checked against Supabase.
+
+   */
+
   const existingByCrmId = await loadClientByCrmId(normalizedClient.id);
 
   if (existingByCrmId) {
     throw new Error(`Client ID "${normalizedClient.id}" already exists.`);
-  }
+  } /*
 
-  /*
-   * Duplicate business details are also checked in Supabase.
-   * Archived records are included to preserve history.
-   */
+   \* Duplicate business details are also checked in Supabase.
+
+   \* Archived records are included to preserve history.
+
+   */
+
   const duplicate = await findDuplicateClientInSupabase(normalizedClient);
 
   if (duplicate) {
@@ -906,6 +1174,7 @@ export async function addClient(client: Client): Promise<number> {
 
   const newClient: Client = {
     ...normalizedClient,
+
     archived: false,
   };
 
@@ -915,6 +1184,7 @@ export async function addClient(client: Client): Promise<number> {
     databaseId = await syncClientToSupabase(newClient);
   } catch (error) {
     console.error("Failed to create client in Supabase:", error);
+
     throw new Error(
       "Client could not be saved to the database. Please try again.",
     );
@@ -934,20 +1204,34 @@ export async function addClient(client: Client): Promise<number> {
 
   void createActivityLog({
     action: "CREATE",
+
     module: "Clients",
+
     record_id: newClient.id,
+
     record_name: newClient.company,
+
     description: `Created new client "${newClient.company}"`,
+
     new_data: {
       company: newClient.company,
+
       contactPerson: newClient.contactPerson,
+
       phone: newClient.phone,
+
       email: newClient.email,
+
       address: newClient.address,
+
       gst: newClient.gst,
+
       services: newClient.services,
+
       status: newClient.status,
+
       crmClientId: newClient.id,
+
       supabaseClientId: databaseId,
     },
   });
@@ -956,48 +1240,44 @@ export async function addClient(client: Client): Promise<number> {
 }
 
 /* =========================================================
-   ARCHIVE CLIENT
-   ---------------------------------------------------------
-   NEVER permanently delete.
-========================================================= */
+
+   ARCHIVE CLIENT
+
+   ---------------------------------------------------------
+
+   NEVER permanently delete.
+
+\========================================================= */
 
 export async function archiveClient(id: string): Promise<void> {
   const normalizedId = String(id || "").trim();
 
-  if (!normalizedId) {
-    throw new Error("Client ID is required.");
-  }
+  if (!normalizedId) throw new Error("Client ID is required.");
 
   const existingClient = await loadClientByCrmId(normalizedId);
-
   if (!existingClient) {
     throw new Error(`Client "${normalizedId}" not found in Supabase.`);
   }
 
-  if (existingClient.archived === true) {
-    return;
+  if (existingClient.archived === true) return;
+
+  const { error } = await supabase
+    .from("clients")
+    .update({ is_archived: true })
+    .eq("crm_client_id", normalizedId);
+
+  if (error) {
+    console.error("Failed to archive client:", error);
+    throw new Error(`Failed to archive client: ${error.message}`);
   }
 
-  const archivedClient: Client = {
-    ...existingClient,
-    archived: true,
-  };
-
-  const databaseId = await syncClientToSupabase(archivedClient);
-
-  if (databaseId === null) {
-    throw new Error(`Client "${normalizedId}" could not be safely archived.`);
-  }
-
+  const archivedClient: Client = { ...existingClient, archived: true };
   const cachedClients = getClients();
-
-  if (cachedClients.some((client) => client.id === normalizedId)) {
-    saveClients(
-      cachedClients.map((client) =>
-        client.id === normalizedId ? archivedClient : client,
-      ),
-    );
-  }
+  saveClients(
+    cachedClients.map((client) =>
+      client.id === normalizedId ? archivedClient : client,
+    ),
+  );
 
   void createActivityLog({
     action: "ARCHIVE",
@@ -1005,14 +1285,8 @@ export async function archiveClient(id: string): Promise<void> {
     record_id: existingClient.id,
     record_name: existingClient.company,
     description: `Archived client "${existingClient.company}"`,
-    old_data: {
-      archived: existingClient.archived ?? false,
-      status: existingClient.status,
-    },
-    new_data: {
-      archived: true,
-      status: existingClient.status,
-    },
+    old_data: { archived: false, status: existingClient.status },
+    new_data: { archived: true, status: existingClient.status },
   });
 }
 
@@ -1023,31 +1297,17 @@ export async function archiveClient(id: string): Promise<void> {
 export async function restoreClient(id: string): Promise<void> {
   const normalizedId = String(id || "").trim();
 
-  if (!normalizedId) {
-    throw new Error("Client ID is required.");
-  }
+  if (!normalizedId) throw new Error("Client ID is required.");
 
   const existingClient = await loadClientByCrmId(normalizedId);
-
   if (!existingClient) {
     throw new Error(`Client "${normalizedId}" not found in Supabase.`);
   }
 
-  if (existingClient.archived !== true) {
-    return;
-  }
+  if (existingClient.archived !== true) return;
 
-  const restoredClient: Client = {
-    ...existingClient,
-    archived: false,
-  };
-
-  /*
-   * Check active/other records before restoring so we do not
-   * create a duplicate business record.
-   */
   const duplicate = await findDuplicateClientInSupabase(
-    restoredClient,
+    existingClient,
     existingClient.id,
   );
 
@@ -1059,58 +1319,59 @@ export async function restoreClient(id: string): Promise<void> {
     );
   }
 
-  const databaseId = await syncClientToSupabase(restoredClient);
+  const { error } = await supabase
+    .from("clients")
+    .update({ is_archived: false })
+    .eq("crm_client_id", normalizedId);
 
-  if (databaseId === null) {
-    throw new Error(`Client "${normalizedId}" could not be safely restored.`);
+  if (error) {
+    console.error("Failed to restore client:", error);
+    throw new Error(`Failed to restore client: ${error.message}`);
   }
 
+  const restoredClient: Client = { ...existingClient, archived: false };
   const cachedClients = getClients();
-
-  if (cachedClients.some((client) => client.id === normalizedId)) {
-    saveClients(
-      cachedClients.map((client) =>
-        client.id === normalizedId ? restoredClient : client,
-      ),
-    );
-  } else {
-    saveClients([...cachedClients, restoredClient]);
-  }
+  saveClients([
+    ...cachedClients.filter((client) => client.id !== normalizedId),
+    restoredClient,
+  ]);
 
   void createActivityLog({
-    action: "UPDATE",
+    action: "RESTORE",
     module: "Clients",
     record_id: existingClient.id,
     record_name: existingClient.company,
     description: `Restored client "${existingClient.company}"`,
-    old_data: {
-      archived: true,
-    },
-    new_data: {
-      archived: false,
-    },
+    old_data: { archived: true },
+    new_data: { archived: false },
   });
 }
 
 /* =========================================================
-   ACTIVE CLIENTS
-========================================================= */
+
+   ACTIVE CLIENTS
+
+\========================================================= */
 
 export function getActiveClients(): Client[] {
   return getClients().filter((client) => client.archived !== true);
 }
 
 /* =========================================================
-   ARCHIVED CLIENTS
-========================================================= */
+
+   ARCHIVED CLIENTS
+
+\========================================================= */
 
 export function getArchivedClients(): Client[] {
   return getClients().filter((client) => client.archived === true);
 }
 
 /* =========================================================
-   CHECK CLIENT EXISTS
-========================================================= */
+
+   CHECK CLIENT EXISTS
+
+\========================================================= */
 
 export function clientExists(id: string): boolean {
   const normalizedId = String(id || "").trim();
@@ -1123,8 +1384,10 @@ export function clientExists(id: string): boolean {
 }
 
 /* =========================================================
-   GET CLIENT BY PHONE
-========================================================= */
+
+   GET CLIENT BY PHONE
+
+\========================================================= */
 
 export function getClientByPhone(phone: string): Client | undefined {
   const normalizedPhone = String(phone || "").replace(/\D/g, "");
@@ -1141,12 +1404,15 @@ export function getClientByPhone(phone: string): Client | undefined {
 }
 
 /* =========================================================
-   GET CLIENT BY EMAIL
-========================================================= */
+
+   GET CLIENT BY EMAIL
+
+\========================================================= */
 
 export function getClientByEmail(email: string): Client | undefined {
   const normalizedEmail = String(email || "")
     .trim()
+
     .toLowerCase();
 
   if (!normalizedEmail) {
@@ -1159,12 +1425,15 @@ export function getClientByEmail(email: string): Client | undefined {
 }
 
 /* =========================================================
-   GET CLIENT BY COMPANY
-========================================================= */
+
+   GET CLIENT BY COMPANY
+
+\========================================================= */
 
 export function getClientByCompany(company: string): Client | undefined {
   const normalizedCompany = String(company || "")
     .trim()
+
     .toLowerCase();
 
   if (!normalizedCompany) {

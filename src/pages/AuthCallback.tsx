@@ -2,11 +2,32 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { supabase } from "../lib/supabase";
+import { playSound, speak } from "../audio/soundManager";
 
 export default function AuthCallback() {
   const navigate = useNavigate();
 
   const [error, setError] = useState("");
+
+  /*
+   * =====================================================
+   * LOGIN GREETING
+   * =====================================================
+   */
+  const playLoginGreeting = async () => {
+    const hour = new Date().getHours();
+
+    const greeting =
+      hour < 12
+        ? "Good morning"
+        : hour < 17
+          ? "Good afternoon"
+          : "Good evening";
+
+    await playSound("notification");
+
+    speak(`${greeting}. Welcome to Bharat Rath CRM.`);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -91,14 +112,13 @@ export default function AuthCallback() {
 
           /* =================================================
              CLEAN CALLBACK URL
-
-             Remove code/error parameters after successful
-             session creation.
           ================================================= */
 
           window.history.replaceState({}, document.title, "/auth/callback");
 
           if (mounted) {
+            await playLoginGreeting();
+
             navigate("/", { replace: true });
           }
 
@@ -155,6 +175,8 @@ export default function AuthCallback() {
             window.history.replaceState({}, document.title, "/auth/callback");
 
             if (mounted) {
+              await playLoginGreeting();
+
               navigate("/", { replace: true });
             }
 
@@ -186,6 +208,8 @@ export default function AuthCallback() {
 
         if (sessionData.session) {
           console.log("Existing session found.");
+
+          await playLoginGreeting();
 
           navigate("/", { replace: true });
 

@@ -19,6 +19,8 @@ import { getInvoiceSettings } from "../data/settingsStore";
 
 import AddPaymentModal from "../components/AddPaymentModal";
 
+import { playSound } from "../audio/soundManager";
+
 export default function RenewalDetails() {
   const navigate = useNavigate();
   const { renewalId } = useParams();
@@ -122,6 +124,7 @@ export default function RenewalDetails() {
 
       if (updated) {
         setRenewal(updated);
+        await playSound("success");
       } else {
         window.alert("Renewal could not be completed.");
       }
@@ -274,6 +277,8 @@ export default function RenewalDetails() {
       });
 
       setGeneratedInvoice(invoice);
+
+      await playSound("success");
 
       window.alert(
         `Invoice generated successfully.\n\nInvoice: ${invoice.invoiceNumber}`,

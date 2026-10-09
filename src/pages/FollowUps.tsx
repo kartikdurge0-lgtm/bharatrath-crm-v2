@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+
 import { useNavigate } from "react-router-dom";
 
 import {
   getFollowUps,
+  getArchivedFollowUps,
+  deleteFollowUp,
+  restoreFollowUp,
   completeFollowUp,
   reopenFollowUp,
 } from "../data/followUpStore";
@@ -15,14 +19,18 @@ import type {
 } from "../data/followUpStore";
 
 import { getActiveSalesPersons } from "../data/salesPersonStore";
+
 import Pagination from "../components/Pagination";
 
 const PAGE_SIZE = 6;
 
 const relatedTypes: FollowUpRelatedType[] = [
   "Lead",
+
   "Client",
+
   "Quotation",
+
   "Renewal",
 ];
 
@@ -31,7 +39,13 @@ const priorities: FollowUpPriority[] = ["High", "Medium", "Low"];
 const statuses: FollowUpStatus[] = ["Pending", "Completed"];
 
 /* =================================================
+
+
+
    DATE / TIME HELPERS
+
+
+
 ================================================= */
 
 function formatDate(date: string): string {
@@ -50,6 +64,7 @@ function formatTime(time: string): string {
   if (!time) return "";
 
   const [hourString, minute] = time.split(":");
+
   const hour = Number(hourString);
 
   if (!Number.isFinite(hour)) {
@@ -57,6 +72,7 @@ function formatTime(time: string): string {
   }
 
   const suffix = hour >= 12 ? "PM" : "AM";
+
   const displayHour = hour % 12 === 0 ? 12 : hour % 12;
 
   return `${displayHour}:${minute} ${suffix}`;
@@ -87,7 +103,13 @@ function isToday(followUp: FollowUp): boolean {
 }
 
 /* =================================================
+
+
+
    BADGE CLASSES
+
+
+
 ================================================= */
 
 function priorityClass(priority: FollowUpPriority) {
@@ -131,13 +153,20 @@ function relatedTypeClass(type?: FollowUpRelatedType) {
 }
 
 /* =================================================
+
+
+
    PAGE
+
+
+
 ================================================= */
 
 export default function FollowUps() {
   const navigate = useNavigate();
 
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+
   const [loading, setLoading] = useState(true);
 
   const [salesPersons, setSalesPersons] = useState<
@@ -160,8 +189,18 @@ export default function FollowUps() {
 
   const [currentPage, setCurrentPage] = useState(1);
 
+  const [showArchived] = useState(false);
+
+  const [archivedFollowUps, setArchivedFollowUps] = useState<FollowUp[]>([]);
+
   /* =================================================
+
+
+
      LOAD FOLLOW-UPS
+
+
+
   ================================================= */
 
   useEffect(() => {
@@ -199,12 +238,47 @@ export default function FollowUps() {
 
     return () => {
       mounted = false;
+
       window.removeEventListener("focus", handleFocus);
     };
   }, []);
 
+  useEffect(() => {
+    if (!showArchived) return;
+
+    let mounted = true;
+
+    async function loadArchivedFollowUps() {
+      try {
+        const data = await getArchivedFollowUps();
+
+        if (mounted) {
+          setArchivedFollowUps(data);
+        }
+      } catch (error) {
+        console.error("Failed to load archived follow-ups:", error);
+
+        if (mounted) {
+          setArchivedFollowUps([]);
+        }
+      }
+    }
+
+    void loadArchivedFollowUps();
+
+    return () => {
+      mounted = false;
+    };
+  }, [showArchived]);
+
   /* =================================================
+
+
+
      LOAD SALES PERSONS
+
+
+
   ================================================= */
 
   useEffect(() => {
@@ -234,7 +308,13 @@ export default function FollowUps() {
   }, []);
 
   /* =================================================
+
+
+
      ASSIGNED PERSON MAP
+
+
+
   ================================================= */
 
   const assignedNames = useMemo(() => {
@@ -248,19 +328,46 @@ export default function FollowUps() {
   }, [salesPersons]);
 
   /* =================================================
+
+
+
      FILTERED + SORTED FOLLOW-UPS
-     
+
+
+
+
+
+
+
      IMPORTANT:
+
+
+
      Latest CREATED entry first.
+
+
+
      Oldest CREATED entry last.
-     
+
+
+
+
+
+
+
      Filter → Sort → Pagination
+
+
+
   ================================================= */
 
   const filteredFollowUps = useMemo(() => {
     const searchText = search.trim().toLowerCase();
 
-    return [...followUps]
+    const sourceFollowUps = showArchived ? archivedFollowUps : followUps;
+
+    return [...sourceFollowUps]
+
       .filter((followUp) => {
         if (!searchText) {
           return true;
@@ -268,42 +375,62 @@ export default function FollowUps() {
 
         const text = [
           followUp.id,
+
           followUp.relatedName,
+
           followUp.clientName,
+
           followUp.contactPerson,
+
           followUp.phone,
+
           followUp.purpose,
+
           followUp.nextAction,
+
           followUp.notes,
+
           followUp.internalNotes,
         ]
+
           .filter(Boolean)
+
           .join(" ")
+
           .toLowerCase();
 
         return text.includes(searchText);
       })
+
       .filter((followUp) => {
         if (!relatedType) return true;
 
         return followUp.relatedType === relatedType;
       })
+
       .filter((followUp) => {
         if (!priority) return true;
 
         return followUp.priority === priority;
       })
+
       .filter((followUp) => {
         if (!status) return true;
 
         return followUp.status === status;
       })
+
       .filter((followUp) => {
         if (!assignedTo) return true;
 
         return followUp.assignedTo === assignedTo;
       })
+
       .filter((followUp) => {
+        if (showArchived) {
+          return true;
+        }
+
         if (viewFilter === "Today") {
           return isToday(followUp);
         }
@@ -322,31 +449,76 @@ export default function FollowUps() {
 
         return true;
       })
+
       .sort((a, b) => {
         /*
+
+
+
          * IMPORTANT:
+
+
+
          * createdAt determines entry order.
+
+
+
          *
+
+
+
          * Newest = first
+
+
+
          * Oldest = last
+
+
+
          */
 
         const dateA = new Date(a.createdAt).getTime();
+
         const dateB = new Date(b.createdAt).getTime();
 
         /*
+
+
+
          * If createdAt is valid, newest first.
+
+
+
          */
+
         if (Number.isFinite(dateA) && Number.isFinite(dateB)) {
           return dateB - dateA;
         }
 
         /*
+
+
+
          * Safe fallback:
+
+
+
          * Follow-up ID is numeric and normally increases
+
+
+
          * with every new entry.
+
+
+
          *
+
+
+
          * FU-010 should come before FU-009.
+
+
+
          */
 
         const idA = Number(a.id.replace(/\D/g, ""));
@@ -361,16 +533,32 @@ export default function FollowUps() {
       });
   }, [
     followUps,
+
     search,
+
     relatedType,
+
     priority,
+
     status,
+
     assignedTo,
+
     viewFilter,
+
+    showArchived,
+
+    archivedFollowUps,
   ]);
 
   /* =================================================
+
+
+
      SUMMARY
+
+
+
   ================================================= */
 
   const total = followUps.length;
@@ -390,14 +578,34 @@ export default function FollowUps() {
   ).length;
 
   /* =================================================
+
+
+
      PAGINATION
+
+
+
   ================================================= */
 
   const totalPages = Math.ceil(filteredFollowUps.length / PAGE_SIZE);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, relatedType, priority, status, assignedTo, viewFilter]);
+  }, [
+    search,
+
+    relatedType,
+
+    priority,
+
+    status,
+
+    assignedTo,
+
+    viewFilter,
+
+    showArchived,
+  ]);
 
   useEffect(() => {
     if (totalPages > 0 && currentPage > totalPages) {
@@ -416,7 +624,13 @@ export default function FollowUps() {
   }, [filteredFollowUps, currentPage]);
 
   /* =================================================
+
+
+
      ACTIONS
+
+
+
   ================================================= */
 
   async function handleComplete(id: string) {
@@ -447,43 +661,118 @@ export default function FollowUps() {
     }
   }
 
+  async function handleArchive(id: string) {
+    try {
+      const success = await deleteFollowUp(id);
+
+      if (!success) {
+        throw new Error("Failed to archive follow-up");
+      }
+
+      const updatedFollowUps = await getFollowUps();
+
+      setFollowUps(updatedFollowUps);
+
+      if (showArchived) {
+        const updatedArchivedFollowUps = await getArchivedFollowUps();
+
+        setArchivedFollowUps(updatedArchivedFollowUps);
+      }
+    } catch (error) {
+      console.error("Failed to archive follow-up:", error);
+
+      alert("Failed to archive follow-up. Please try again.");
+    }
+  }
+
+  async function handleRestore(id: string) {
+    try {
+      const restored = await restoreFollowUp(id);
+
+      if (!restored) {
+        throw new Error("Failed to restore follow-up");
+      }
+
+      const updatedArchivedFollowUps = await getArchivedFollowUps();
+
+      setArchivedFollowUps(updatedArchivedFollowUps);
+
+      const updatedFollowUps = await getFollowUps();
+
+      setFollowUps(updatedFollowUps);
+    } catch (error) {
+      console.error("Failed to restore follow-up:", error);
+
+      alert("Failed to restore follow-up. Please try again.");
+    }
+  }
+
   function resetFilters() {
     setSearch("");
+
     setRelatedType("");
+
     setPriority("");
+
     setStatus("");
+
     setAssignedTo("");
+
     setViewFilter("All");
+
     setCurrentPage(1);
   }
 
   /* =================================================
+
+
+
      SUMMARY CARD CLASS
+
+
+
   ================================================= */
 
   function summaryCardClass(
     filter: "All" | "Today" | "Overdue" | "Pending" | "Completed",
+
     borderColor: string,
+
     ringColor: string,
   ) {
     const active = viewFilter === filter;
 
     return [
       "rounded-xl border border-slate-200 border-l-4 bg-white p-4 text-left shadow-sm transition",
+
       "hover:shadow-md",
+
       borderColor,
+
       active ? `ring-2 ${ringColor}` : "",
     ].join(" ");
   }
 
   /* =================================================
+
+
+
      RENDER
+
+
+
   ================================================= */
 
   return (
     <div className="mx-auto max-w-7xl">
       {/* =================================================
+
+
+
           PAGE HEADER
+
+
+
       ================================================= */}
 
       <div className="mb-4 flex items-start justify-between gap-4">
@@ -505,7 +794,13 @@ export default function FollowUps() {
       </div>
 
       {/* =================================================
+
+
+
           SUMMARY
+
+
+
       ================================================= */}
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -514,7 +809,9 @@ export default function FollowUps() {
           onClick={() => setViewFilter("All")}
           className={summaryCardClass(
             "All",
+
             "border-l-[#94A3B8]",
+
             "ring-slate-100",
           )}
         >
@@ -534,7 +831,9 @@ export default function FollowUps() {
           onClick={() => setViewFilter("Today")}
           className={summaryCardClass(
             "Today",
+
             "border-l-[#3B82F6]",
+
             "ring-blue-100",
           )}
         >
@@ -554,7 +853,9 @@ export default function FollowUps() {
           onClick={() => setViewFilter("Overdue")}
           className={summaryCardClass(
             "Overdue",
+
             "border-l-[#F97316]",
+
             "ring-orange-100",
           )}
         >
@@ -576,7 +877,9 @@ export default function FollowUps() {
           onClick={() => setViewFilter("Pending")}
           className={summaryCardClass(
             "Pending",
+
             "border-l-[#F59E0B]",
+
             "ring-amber-100",
           )}
         >
@@ -596,7 +899,9 @@ export default function FollowUps() {
           onClick={() => setViewFilter("Completed")}
           className={summaryCardClass(
             "Completed",
+
             "border-l-[#16A34A]",
+
             "ring-green-100",
           )}
         >
@@ -613,7 +918,13 @@ export default function FollowUps() {
       </div>
 
       {/* =================================================
+
+
+
           FILTERS
+
+
+
       ================================================= */}
 
       <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -680,10 +991,12 @@ export default function FollowUps() {
             <option value="">All Team Members</option>
 
             {salesPersons
+
               .filter(
                 (person) =>
                   person.type === "Staff" || person.type === "Part-time",
               )
+
               .map((person) => (
                 <option key={person.id} value={person.id}>
                   {person.name}
@@ -711,7 +1024,13 @@ export default function FollowUps() {
       </div>
 
       {/* =================================================
+
+
+
           TABLE
+
+
+
       ================================================= */}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -736,7 +1055,9 @@ export default function FollowUps() {
             </h3>
 
             <p className="mt-1 text-sm text-slate-500">
-              Create a follow-up or change your filters.
+              {showArchived
+                ? "There are no archived follow-ups."
+                : "Create a follow-up or change your filters."}
             </p>
 
             <button
@@ -912,6 +1233,24 @@ export default function FollowUps() {
                               className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-600 hover:bg-blue-100"
                             >
                               Reopen
+                            </button>
+                          )}
+
+                          {showArchived ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleRestore(followUp.id)}
+                              className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-700 hover:bg-amber-100"
+                            >
+                              Restore
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => void handleArchive(followUp.id)}
+                              className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-600 hover:bg-red-100"
+                            >
+                              Archive
                             </button>
                           )}
                         </div>

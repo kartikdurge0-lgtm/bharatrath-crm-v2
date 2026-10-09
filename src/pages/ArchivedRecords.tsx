@@ -1,12 +1,56 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 import {
+  getArchivedClientsFromSupabase,
+  restoreClient,
+  type Client,
+} from "../data/clientStore";
+
+import { getArchivedLeads, restoreLead, type Lead } from "../data/leadStore";
+
+import {
+  getArchivedFollowUps,
+  restoreFollowUp,
+  type FollowUp,
+} from "../data/followUpStore";
+
+import {
+  getArchivedQuotations,
+  restoreQuotation,
+  type Quotation,
+} from "../data/quotationStore";
+
+import {
   getArchivedRenewals,
   restoreRenewal,
   type Renewal,
 } from "../data/renewalStore";
 
-type ArchiveTab = "all" | "clients" | "renewals" | "invoices" | "payments";
+type ArchiveTab =
+  | "all"
+  | "clients"
+  | "leads"
+  | "followups"
+  | "quotations"
+  | "renewals"
+  | "invoices"
+  | "payments";
+
+type ArchiveRecordType =
+  | "Client"
+  | "Lead"
+  | "Follow-up"
+  | "Quotation"
+  | "Renewal";
+
+type ArchiveRecord = {
+  id: string;
+  type: ArchiveRecordType;
+  name: string;
+  detail: string;
+  date: string;
+  amount?: number;
+};
 
 const PAGE_SIZE = 8;
 
@@ -24,98 +68,308 @@ function formatDate(value?: string) {
   });
 }
 
-function getRecordDate(record: Renewal) {
-  return record.updatedAt || record.createdAt || record.renewalDate || "";
+function getTime(value?: string) {
+  if (!value) return 0;
+
+  const time = new Date(value).getTime();
+
+  return Number.isFinite(time) ? time : 0;
+}
+
+function stringValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  return String(value);
+}
+
+function numberValue(value: unknown): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function typeClass(type: ArchiveRecordType) {
+  switch (type) {
+    case "Client":
+      return "bg-green-50 text-green-700";
+    case "Lead":
+      return "bg-blue-50 text-blue-700";
+    case "Follow-up":
+      return "bg-pink-50 text-pink-700";
+    case "Quotation":
+      return "bg-slate-100 text-slate-700";
+    case "Renewal":
+      return "bg-amber-50 text-amber-700";
+    default:
+      return "bg-slate-100 text-slate-600";
+  }
 }
 
 export default function ArchivedRecords() {
   const [activeTab, setActiveTab] = useState<ArchiveTab>("all");
 
+  const [clients, setClients] = useState<Client[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [renewals, setRenewals] = useState<Renewal[]>([]);
 
   const [search, setSearch] = useState("");
-
   const [currentPage, setCurrentPage] = useState(1);
-
   const [loading, setLoading] = useState(true);
-
-  const [restoringId, setRestoringId] = useState<string | null>(null);
-
+  const [restoringKey, setRestoringKey] = useState<string | null>(null);
   const [message, setMessage] = useState("");
-
   const [error, setError] = useState("");
 
-  /* --------------------------------
-     Load archived records
-  -------------------------------- */
-
+  /*
+   * =========================================================
+   * LOAD ALL ARCHIVED RECORDS
+   *
+   * This page is the central archive location.
+   * Every module that currently has a real archive/restore
+   * workflow is loaded here.
+   * =========================================================
+   */
   const refreshArchivedRecords = async () => {
     setLoading(true);
     setError("");
+    setMessage("");
 
-    try {
-      const archivedRenewals = await getArchivedRenewals();
+    const results = await Promise.allSettled([
+      getArchivedClientsFromSupabase(),
+      getArchivedLeads(),
+      getArchivedFollowUps(),
+      getArchivedQuotations(),
+      getArchivedRenewals(),
+    ]);
 
-      setRenewals(archivedRenewals);
-    } catch (err) {
-      console.error("Failed to load archived records:", err);
+    const [
+      clientsResult,
+      leadsResult,
+      followUpsResult,
+      quotationsResult,
+      renewalsResult,
+    ] = results;
 
-      setRenewals([]);
+    setClients(clientsResult.status === "fulfilled" ? clientsResult.value : []);
+
+    setLeads(leadsResult.status === "fulfilled" ? leadsResult.value : []);
+
+    setFollowUps(
+      followUpsResult.status === "fulfilled" ? followUpsResult.value : [],
+    );
+
+    setQuotations(
+      quotationsResult.status === "fulfilled" ? quotationsResult.value : [],
+    );
+
+    setRenewals(
+      renewalsResult.status === "fulfilled" ? renewalsResult.value : [],
+    );
+
+    const failedModules: string[] = [];
+
+    if (clientsResult.status === "rejected") failedModules.push("Clients");
+    if (leadsResult.status === "rejected") failedModules.push("Leads");
+    if (followUpsResult.status === "rejected") {
+      failedModules.push("Follow-ups");
+    }
+    if (quotationsResult.status === "rejected") {
+      failedModules.push("Quotations");
+    }
+    if (renewalsResult.status === "rejected") {
+      failedModules.push("Renewals");
+    }
+
+    if (failedModules.length > 0) {
+      console.error("Failed archived modules:", results);
 
       setError(
-        "Failed to load archived records. Please refresh and try again.",
+        `Could not load: ${failedModules.join(
+          ", ",
+        )}. Other archived records are shown.`,
       );
-    } finally {
-      setLoading(false);
     }
+
+    setLoading(false);
   };
 
   useEffect(() => {
     void refreshArchivedRecords();
   }, []);
 
-  /* --------------------------------
-     Search
-  -------------------------------- */
+  /*
+   * Refresh when the user returns to this browser tab.
+   */
+  useEffect(() => {
+    const handleFocus = () => {
+      void refreshArchivedRecords();
+    };
 
-  const filteredRenewals = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshArchivedRecords();
+      }
+    };
 
-    const sorted = [...renewals].sort((a, b) => {
-      const dateA = new Date(getRecordDate(a)).getTime();
-      const dateB = new Date(getRecordDate(b)).getTime();
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
-      if (dateA !== dateB) {
-        return dateB - dateA;
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  /*
+   * =========================================================
+   * NORMALIZE RECORDS
+   * =========================================================
+   */
+  const allRecords = useMemo<ArchiveRecord[]>(() => {
+    const records: ArchiveRecord[] = [];
+
+    clients.forEach((client) => {
+      records.push({
+        id: client.id,
+        type: "Client",
+        name: client.company || client.id,
+        detail: client.contactPerson || client.phone || client.email || "-",
+        date: "",
+      });
+    });
+
+    leads.forEach((lead) => {
+      records.push({
+        id: lead.id,
+        type: "Lead",
+        name: lead.companyName || lead.contactPerson || lead.id,
+        detail: lead.contactPerson || lead.phone || lead.email || "-",
+        date: lead.archivedAt || lead.updatedAt || lead.createdAt || "",
+        amount: numberValue(lead.expectedValue),
+      });
+    });
+
+    followUps.forEach((followUp) => {
+      records.push({
+        id: followUp.id,
+        type: "Follow-up",
+        name: followUp.clientName || followUp.relatedName || followUp.id,
+        detail: followUp.purpose || followUp.status || "-",
+        date: followUp.archivedAt || followUp.createdAt || "",
+      });
+    });
+
+    quotations.forEach((quotation) => {
+      const q = quotation as unknown as Record<string, unknown>;
+
+      records.push({
+        id: stringValue(q.id),
+        type: "Quotation",
+        name:
+          stringValue(q.quotationNumber) ||
+          stringValue(q.clientName) ||
+          stringValue(q.id),
+        detail: stringValue(q.clientName) || stringValue(q.status) || "-",
+        date:
+          stringValue(q.archivedAt) ||
+          stringValue(q.updatedAt) ||
+          stringValue(q.createdAt) ||
+          "",
+        amount: numberValue(
+          q.grandTotal ?? q.grand_total ?? q.total ?? q.amount,
+        ),
+      });
+    });
+
+    renewals.forEach((renewal) => {
+      records.push({
+        id: renewal.id,
+        type: "Renewal",
+        name: renewal.id,
+        detail: renewal.clientName || renewal.service || "-",
+        date:
+          renewal.updatedAt || renewal.createdAt || renewal.renewalDate || "",
+        amount: numberValue(renewal.amount),
+      });
+    });
+
+    return records.sort((a, b) => {
+      const dateDifference = getTime(b.date) - getTime(a.date);
+
+      if (dateDifference !== 0) {
+        return dateDifference;
       }
 
       return String(b.id).localeCompare(String(a.id));
     });
+  }, [clients, leads, followUps, quotations, renewals]);
 
-    if (!query) {
-      return sorted;
+  /*
+   * =========================================================
+   * COUNTS
+   * =========================================================
+   */
+  const counts = {
+    clients: clients.length,
+    leads: leads.length,
+    followups: followUps.length,
+    quotations: quotations.length,
+    renewals: renewals.length,
+  };
+
+  /*
+   * =========================================================
+   * TAB FILTER + SEARCH
+   * =========================================================
+   */
+  const filteredRecords = useMemo(() => {
+    let records = allRecords;
+
+    if (activeTab !== "all") {
+      records = records.filter((record) => {
+        if (activeTab === "clients") return record.type === "Client";
+        if (activeTab === "leads") return record.type === "Lead";
+        if (activeTab === "followups") return record.type === "Follow-up";
+        if (activeTab === "quotations") return record.type === "Quotation";
+        if (activeTab === "renewals") return record.type === "Renewal";
+
+        /*
+         * Invoices and Payments do not yet have a database
+         * archive/restore workflow in the current stores.
+         */
+        return false;
+      });
     }
 
-    return sorted.filter((renewal) => {
-      return (
-        renewal.clientName.toLowerCase().includes(query) ||
-        renewal.service.toLowerCase().includes(query) ||
-        renewal.id.toLowerCase().includes(query) ||
-        String(renewal.amount).includes(query) ||
-        (renewal.notes || "").toLowerCase().includes(query)
-      );
-    });
-  }, [renewals, search]);
+    const query = search.trim().toLowerCase();
 
-  /* --------------------------------
-     Pagination
-  -------------------------------- */
+    if (!query) {
+      return records;
+    }
 
-  const totalPages = Math.ceil(filteredRenewals.length / PAGE_SIZE);
+    return records.filter((record) =>
+      [
+        record.id,
+        record.type,
+        record.name,
+        record.detail,
+        String(record.amount ?? ""),
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [activeTab, allRecords, search]);
+
+  /*
+   * =========================================================
+   * PAGINATION
+   * =========================================================
+   */
+  const totalPages = Math.ceil(filteredRecords.length / PAGE_SIZE);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, activeTab]);
+  }, [activeTab, search]);
 
   useEffect(() => {
     if (totalPages === 0 && currentPage !== 1) {
@@ -128,16 +382,17 @@ export default function ArchivedRecords() {
     }
   }, [currentPage, totalPages]);
 
-  const paginatedRenewals = useMemo(() => {
+  const paginatedRecords = useMemo(() => {
     const startIndex = (currentPage - 1) * PAGE_SIZE;
 
-    return filteredRenewals.slice(startIndex, startIndex + PAGE_SIZE);
-  }, [filteredRenewals, currentPage]);
+    return filteredRecords.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [filteredRecords, currentPage]);
 
-  /* --------------------------------
-     Page numbers
-  -------------------------------- */
-
+  /*
+   * =========================================================
+   * PAGE NUMBERS
+   * =========================================================
+   */
   const pageNumbers = useMemo(() => {
     if (totalPages <= 5) {
       return Array.from({ length: totalPages }, (_, index) => index + 1);
@@ -164,42 +419,79 @@ export default function ArchivedRecords() {
       .sort((a, b) => a - b);
   }, [currentPage, totalPages]);
 
-  /* --------------------------------
-     Restore
-  -------------------------------- */
+  /*
+   * =========================================================
+   * RESTORE
+   * =========================================================
+   */
+  const handleRestore = async (record: ArchiveRecord) => {
+    if (restoringKey) {
+      return;
+    }
 
-  const handleRestoreRenewal = async (renewal: Renewal) => {
     const confirmed = window.confirm(
-      `Restore renewal for "${renewal.clientName}"?`,
+      `Restore ${record.type.toLowerCase()} "${record.name}"?`,
     );
 
     if (!confirmed) {
       return;
     }
 
-    setRestoringId(renewal.id);
+    const key = `${record.type}:${record.id}`;
+
+    setRestoringKey(key);
     setMessage("");
     setError("");
 
     try {
-      await restoreRenewal(renewal.id);
+      let restored = false;
 
-      setMessage(`Renewal for ${renewal.clientName} restored successfully.`);
+      if (record.type === "Client") {
+        await restoreClient(record.id);
+        restored = true;
+      }
+
+      if (record.type === "Lead") {
+        restored = await restoreLead(record.id);
+      }
+
+      if (record.type === "Follow-up") {
+        restored = (await restoreFollowUp(record.id)) !== null;
+      }
+
+      if (record.type === "Quotation") {
+        restored = (await restoreQuotation(record.id)) !== null;
+      }
+
+      if (record.type === "Renewal") {
+        restored = (await restoreRenewal(record.id)) !== null;
+      }
+
+      if (!restored) {
+        throw new Error(`Failed to restore ${record.type.toLowerCase()}.`);
+      }
+
+      setMessage(`${record.type} "${record.name}" restored successfully.`);
 
       await refreshArchivedRecords();
     } catch (err) {
-      console.error("Failed to restore renewal:", err);
+      console.error(`Failed to restore ${record.type}:`, err);
 
-      setError("Failed to restore the renewal. Please try again.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : `Failed to restore ${record.type.toLowerCase()}. Please try again.`,
+      );
     } finally {
-      setRestoringId(null);
+      setRestoringKey(null);
     }
   };
 
-  /* --------------------------------
-     Tabs
-  -------------------------------- */
-
+  /*
+   * =========================================================
+   * TABS
+   * =========================================================
+   */
   const tabs: {
     key: ArchiveTab;
     label: string;
@@ -210,17 +502,37 @@ export default function ArchivedRecords() {
       key: "all",
       label: "All",
       icon: "📦",
+      count: allRecords.length,
     },
     {
       key: "clients",
       label: "Clients",
       icon: "👥",
+      count: counts.clients,
+    },
+    {
+      key: "leads",
+      label: "Leads",
+      icon: "🎯",
+      count: counts.leads,
+    },
+    {
+      key: "followups",
+      label: "Follow-ups",
+      icon: "📞",
+      count: counts.followups,
+    },
+    {
+      key: "quotations",
+      label: "Quotations",
+      icon: "🧾",
+      count: counts.quotations,
     },
     {
       key: "renewals",
       label: "Renewals",
       icon: "🔄",
-      count: renewals.length,
+      count: counts.renewals,
     },
     {
       key: "invoices",
@@ -234,16 +546,11 @@ export default function ArchivedRecords() {
     },
   ];
 
-  /* --------------------------------
-     Empty / unavailable tabs
-  -------------------------------- */
-
-  const isRenewalsTab = activeTab === "renewals";
+  const isUnavailableTab = activeTab === "invoices" || activeTab === "payments";
 
   return (
     <section className="min-w-0 p-4 sm:p-5 md:p-6">
       {/* HEADER */}
-
       <div className="flex min-w-0 flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-lg">
@@ -272,7 +579,6 @@ export default function ArchivedRecords() {
       </div>
 
       {/* MESSAGE */}
-
       {message && (
         <div className="mt-5 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
           ✓ {message}
@@ -280,7 +586,6 @@ export default function ArchivedRecords() {
       )}
 
       {/* ERROR */}
-
       {error && (
         <div className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
           {error}
@@ -288,7 +593,6 @@ export default function ArchivedRecords() {
       )}
 
       {/* TABS */}
-
       <div className="mt-5 overflow-x-auto">
         <div className="flex min-w-max gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1.5">
           {tabs.map((tab) => {
@@ -298,7 +602,10 @@ export default function ArchivedRecords() {
               <button
                 key={tab.key}
                 type="button"
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => {
+                  setActiveTab(tab.key);
+                  setSearch("");
+                }}
                 className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
                   active
                     ? "bg-white text-green-700 shadow-sm"
@@ -306,7 +613,6 @@ export default function ArchivedRecords() {
                 }`}
               >
                 <span>{tab.icon}</span>
-
                 <span>{tab.label}</span>
 
                 {tab.count !== undefined && (
@@ -327,8 +633,7 @@ export default function ArchivedRecords() {
       </div>
 
       {/* SEARCH */}
-
-      {isRenewalsTab || activeTab === "all" ? (
+      {!isUnavailableTab && (
         <div className="mt-5 flex min-w-0 flex-col gap-3 sm:flex-row">
           <div className="relative min-w-0 flex-1">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -338,7 +643,13 @@ export default function ArchivedRecords() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search archived renewals..."
+              placeholder={`Search archived ${
+                activeTab === "all"
+                  ? "records"
+                  : tabs
+                      .find((tab) => tab.key === activeTab)
+                      ?.label.toLowerCase()
+              }...`}
               className="w-full min-w-0 rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-2 focus:ring-green-100"
             />
           </div>
@@ -353,310 +664,263 @@ export default function ArchivedRecords() {
             </button>
           )}
         </div>
-      ) : null}
-
-      {/* CONTENT */}
-
-      {activeTab === "clients" && (
-        <ComingSoon
-          icon="👥"
-          title="Archived Clients"
-          description="Archived client records will appear here."
-        />
       )}
 
-      {activeTab === "invoices" && (
-        <ComingSoon
-          icon="🧾"
-          title="Archived Invoices"
-          description="Archived invoice records will appear here."
-        />
-      )}
-
-      {activeTab === "payments" && (
-        <ComingSoon
-          icon="💳"
-          title="Archived Payments"
-          description="Archived payment records will appear here."
-        />
-      )}
-
-      {(activeTab === "renewals" || activeTab === "all") && (
-        <div className="mt-5">
-          {/* SECTION HEADER */}
-
-          <div className="mb-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <h3 className="font-semibold text-slate-900">
-                Archived Renewals
-              </h3>
-
-              <p className="mt-1 text-xs text-slate-500">
-                {filteredRenewals.length}{" "}
-                {filteredRenewals.length === 1 ? "renewal" : "renewals"} found.
-              </p>
-            </div>
-
-            {search && (
-              <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                Search active
-              </span>
-            )}
+      {/* INVOICE / PAYMENT PLACEHOLDER */}
+      {isUnavailableTab ? (
+        <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 px-5 py-14 text-center">
+          <div className="text-3xl">
+            {activeTab === "invoices" ? "🧾" : "💳"}
           </div>
 
-          {/* TABLE */}
+          <h3 className="mt-3 font-semibold text-slate-800">
+            {activeTab === "invoices"
+              ? "Archived Invoices"
+              : "Archived Payments"}
+          </h3>
 
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="min-w-[900px] w-full text-sm">
-              <thead className="bg-[#F4F7FA]">
-                <tr>
-                  <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
-                    Renewal
-                  </th>
+          <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+            {activeTab === "invoices"
+              ? "Invoice archive and restore workflow is not yet available in the current invoice store."
+              : "Payment archive and restore workflow is not yet available in the current payment store."}
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* CONTENT */}
+          <div className="mt-5">
+            <div className="mb-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <h3 className="font-semibold text-slate-900">
+                  {activeTab === "all"
+                    ? "All Archived Records"
+                    : tabs.find((tab) => tab.key === activeTab)?.label}
+                </h3>
 
-                  <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
-                    Client
-                  </th>
+                <p className="mt-1 text-xs text-slate-500">
+                  {filteredRecords.length}{" "}
+                  {filteredRecords.length === 1 ? "record" : "records"} found.
+                </p>
+              </div>
 
-                  <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
-                    Service
-                  </th>
+              {search && (
+                <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                  Search active
+                </span>
+              )}
+            </div>
 
-                  <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
-                    Renewal Date
-                  </th>
-
-                  <th className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-700">
-                    Amount
-                  </th>
-
-                  <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
-                    Archived
-                  </th>
-
-                  <th className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-700">
-                    Action
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {loading ? (
+            {/* TABLE */}
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+              <table className="min-w-[900px] w-full text-sm">
+                <thead className="bg-[#F4F7FA]">
                   <tr>
-                    <td
-                      colSpan={7}
-                      className="px-4 py-12 text-center text-slate-500"
-                    >
-                      <div className="text-2xl">⏳</div>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
+                      Record
+                    </th>
 
-                      <div className="mt-2 font-medium">
-                        Loading archived records...
-                      </div>
-                    </td>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
+                      Type
+                    </th>
+
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
+                      Details
+                    </th>
+
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-700">
+                      Archived
+                    </th>
+
+                    <th className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-700">
+                      Amount
+                    </th>
+
+                    <th className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-700">
+                      Action
+                    </th>
                   </tr>
-                ) : paginatedRenewals.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="px-4 py-12 text-center text-slate-500"
-                    >
-                      <div className="text-3xl">🗄️</div>
+                </thead>
 
-                      <div className="mt-2 font-semibold text-slate-700">
-                        No archived renewals
-                      </div>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-4 py-12 text-center text-slate-500"
+                      >
+                        <div className="text-2xl">⏳</div>
 
-                      <div className="mt-1 text-xs text-slate-400">
-                        Archived renewals will appear here.
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedRenewals.map((renewal) => (
-                    <tr
-                      key={renewal.id}
-                      className="border-t border-slate-100 hover:bg-slate-50/60"
-                    >
-                      {/* RENEWAL */}
-
-                      <td className="px-4 py-3">
-                        <div className="font-semibold text-slate-900">
-                          {renewal.id}
+                        <div className="mt-2 font-medium">
+                          Loading archived records...
                         </div>
-
-                        {renewal.paymentStatus && (
-                          <div className="mt-1 text-xs text-slate-400">
-                            Payment: {renewal.paymentStatus}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* CLIENT */}
-
-                      <td className="max-w-[220px] px-4 py-3">
-                        <div
-                          className="truncate font-semibold text-slate-800"
-                          title={renewal.clientName}
-                        >
-                          {renewal.clientName}
-                        </div>
-                      </td>
-
-                      {/* SERVICE */}
-
-                      <td className="max-w-[200px] px-4 py-3">
-                        <div
-                          className="truncate text-slate-600"
-                          title={renewal.service}
-                        >
-                          {renewal.service}
-                        </div>
-                      </td>
-
-                      {/* RENEWAL DATE */}
-
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                        {formatDate(renewal.renewalDate)}
-                      </td>
-
-                      {/* AMOUNT */}
-
-                      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-800">
-                        ₹{Number(renewal.amount || 0).toLocaleString("en-IN")}
-                      </td>
-
-                      {/* ARCHIVED */}
-
-                      <td className="whitespace-nowrap px-4 py-3">
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                          Archived
-                        </span>
-                      </td>
-
-                      {/* ACTION */}
-
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          disabled={restoringId === renewal.id}
-                          onClick={() => void handleRestoreRenewal(renewal)}
-                          className="rounded-lg border border-green-300 bg-white px-3 py-1.5 text-xs font-semibold text-green-700 transition hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {restoringId === renewal.id
-                            ? "Restoring..."
-                            : "Restore"}
-                        </button>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ) : paginatedRecords.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-4 py-12 text-center text-slate-500"
+                      >
+                        <div className="text-3xl">🗄️</div>
 
-          {/* PAGINATION */}
+                        <div className="mt-2 font-semibold text-slate-700">
+                          No archived records
+                        </div>
 
-          {filteredRenewals.length > 0 && (
-            <div className="border-t border-slate-100">
-              <div className="flex min-w-0 flex-col gap-3 px-1 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-slate-500">
-                  Showing{" "}
-                  <span className="font-semibold text-slate-700">
-                    {(currentPage - 1) * PAGE_SIZE + 1}-
-                    {Math.min(currentPage * PAGE_SIZE, filteredRenewals.length)}
-                  </span>{" "}
-                  of{" "}
-                  <span className="font-semibold text-slate-700">
-                    {filteredRenewals.length}
-                  </span>{" "}
-                  renewals
-                </p>
-
-                {totalPages > 1 && (
-                  <div className="flex max-w-full flex-wrap items-center justify-start gap-1 sm:justify-end">
-                    <button
-                      type="button"
-                      disabled={currentPage === 1}
-                      onClick={() =>
-                        setCurrentPage((page) => Math.max(1, page - 1))
-                      }
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Previous
-                    </button>
-
-                    {pageNumbers.map((page, index) => {
-                      const previousPage = pageNumbers[index - 1];
-
-                      const showEllipsis =
-                        previousPage !== undefined && page - previousPage > 1;
+                        <div className="mt-1 text-xs text-slate-400">
+                          Archived records will appear here.
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedRecords.map((record) => {
+                      const key = `${record.type}:${record.id}`;
+                      const restoring = restoringKey === key;
 
                       return (
-                        <React.Fragment key={page}>
-                          {showEllipsis && (
-                            <span className="px-1.5 text-xs text-slate-500">
-                              ...
+                        <tr
+                          key={key}
+                          className="border-t border-slate-100 hover:bg-slate-50/60"
+                        >
+                          <td className="px-4 py-3">
+                            <div className="font-semibold text-slate-900">
+                              {record.name}
+                            </div>
+
+                            <div className="mt-1 text-xs text-slate-400">
+                              {record.id}
+                            </div>
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${typeClass(
+                                record.type,
+                              )}`}
+                            >
+                              {record.type}
                             </span>
-                          )}
+                          </td>
 
-                          <button
-                            type="button"
-                            onClick={() => setCurrentPage(page)}
-                            className={`min-w-[32px] rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                              currentPage === page
-                                ? "bg-green-600 text-white"
-                                : "border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
-                            }`}
-                          >
-                            {page}
-                          </button>
-                        </React.Fragment>
+                          <td className="max-w-[280px] px-4 py-3">
+                            <div
+                              className="truncate text-slate-600"
+                              title={record.detail}
+                            >
+                              {record.detail}
+                            </div>
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                            {formatDate(record.date)}
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-800">
+                            {record.amount !== undefined && record.amount > 0
+                              ? `₹${record.amount.toLocaleString("en-IN")}`
+                              : "-"}
+                          </td>
+
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              disabled={restoring}
+                              onClick={() => void handleRestore(record)}
+                              className="rounded-lg border border-green-300 bg-white px-3 py-1.5 text-xs font-semibold text-green-700 transition hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {restoring ? "Restoring..." : "Restore"}
+                            </button>
+                          </td>
+                        </tr>
                       );
-                    })}
-
-                    <button
-                      type="button"
-                      disabled={currentPage === totalPages}
-                      onClick={() =>
-                        setCurrentPage((page) => Math.min(totalPages, page + 1))
-                      }
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Next
-                    </button>
-                  </div>
-                )}
-              </div>
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
-          )}
-        </div>
+
+            {/* PAGINATION */}
+            {filteredRecords.length > 0 && (
+              <div className="border-t border-slate-100">
+                <div className="flex min-w-0 flex-col gap-3 px-1 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-slate-500">
+                    Showing{" "}
+                    <span className="font-semibold text-slate-700">
+                      {(currentPage - 1) * PAGE_SIZE + 1}-
+                      {Math.min(
+                        currentPage * PAGE_SIZE,
+                        filteredRecords.length,
+                      )}
+                    </span>{" "}
+                    of{" "}
+                    <span className="font-semibold text-slate-700">
+                      {filteredRecords.length}
+                    </span>{" "}
+                    records
+                  </p>
+
+                  {totalPages > 1 && (
+                    <div className="flex max-w-full flex-wrap items-center justify-start gap-1 sm:justify-end">
+                      <button
+                        type="button"
+                        disabled={currentPage === 1}
+                        onClick={() =>
+                          setCurrentPage((page) => Math.max(1, page - 1))
+                        }
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Previous
+                      </button>
+
+                      {pageNumbers.map((page, index) => {
+                        const previousPage = pageNumbers[index - 1];
+
+                        const showEllipsis =
+                          previousPage !== undefined && page - previousPage > 1;
+
+                        return (
+                          <React.Fragment key={page}>
+                            {showEllipsis && (
+                              <span className="px-1.5 text-xs text-slate-500">
+                                ...
+                              </span>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => setCurrentPage(page)}
+                              className={`min-w-[32px] rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                                currentPage === page
+                                  ? "bg-green-600 text-white"
+                                  : "border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                              }`}
+                            >
+                              {page}
+                            </button>
+                          </React.Fragment>
+                        );
+                      })}
+
+                      <button
+                        type="button"
+                        disabled={currentPage === totalPages}
+                        onClick={() =>
+                          setCurrentPage((page) =>
+                            Math.min(totalPages, page + 1),
+                          )
+                        }
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </section>
-  );
-}
-
-/* =========================================================
-   COMING SOON
-========================================================= */
-
-function ComingSoon({
-  icon,
-  title,
-  description,
-}: {
-  icon: string;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 px-5 py-14 text-center">
-      <div className="text-3xl">{icon}</div>
-
-      <h3 className="mt-3 font-semibold text-slate-800">{title}</h3>
-
-      <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-        {description}
-      </p>
-    </div>
   );
 }

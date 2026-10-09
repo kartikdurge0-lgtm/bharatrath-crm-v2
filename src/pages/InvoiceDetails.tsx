@@ -12,6 +12,7 @@ import { getClientByIdFromSupabase } from "../data/clientStore";
 import { getQuotation } from "../data/quotationStore";
 
 import AddPaymentModal from "../components/AddPaymentModal";
+import { playSound, speak } from "../audio/soundManager";
 
 /* =========================================================
    CURRENCY
@@ -297,9 +298,13 @@ export default function InvoiceDetails() {
      PAYMENT SAVED
   ======================================================= */
 
-  function handlePaymentSaved() {
+  async function handlePaymentSaved() {
     setShowPaymentModal(false);
     setRefreshKey((value) => value + 1);
+
+    await playSound("payment-success");
+
+    speak("Payment received");
   }
 
   /* =======================================================

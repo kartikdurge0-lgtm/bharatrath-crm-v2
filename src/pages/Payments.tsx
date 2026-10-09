@@ -12,6 +12,7 @@ import {
 import { getClientById } from "../data/clientStore";
 import AddPaymentModal from "../components/AddPaymentModal";
 import Pagination from "../components/Pagination";
+import { playPaymentSuccess } from "../audio/soundManager";
 
 const PAGE_SIZE = 6;
 
@@ -398,9 +399,12 @@ export default function Payments() {
     setShowPaymentModal(true);
   };
 
-  const handlePaymentSaved = () => {
+  const handlePaymentSaved = async () => {
     setShowPaymentModal(false);
     setSelectedInvoice(null);
+
+    await playPaymentSuccess();
+
     loadInvoices();
   };
 

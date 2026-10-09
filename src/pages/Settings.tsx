@@ -19,6 +19,8 @@ import {
 
 import { supabase } from "../lib/supabase";
 
+import { playSound, speak } from "../audio/soundManager";
+
 type SettingsSection =
   | "business"
   | "team"
@@ -1681,6 +1683,61 @@ export default function Settings() {
               <SaveButton onClick={savePreferences} />
             </section>
           )}
+
+          <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div>
+              <h3 className="font-semibold text-slate-900">
+                🔊 Sound & Voice Test
+              </h3>
+
+              <p className="mt-1 text-xs text-slate-500">
+                Test CRM sound and voice feedback before connecting it to
+                transactions.
+              </p>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void playSound("success")}
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700"
+              >
+                🔔 Success
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void playSound("payment-success")}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                💰 Payment
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void playSound("notification")}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                🔔 Notification
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void playSound("error")}
+                className="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+              >
+                ⚠️ Error
+              </button>
+
+              <button
+                type="button"
+                onClick={() => speak("Payment received")}
+                className="rounded-lg border border-purple-200 bg-white px-4 py-2 text-sm font-semibold text-purple-600 hover:bg-purple-50"
+              >
+                🗣️ Voice
+              </button>
+            </div>
+          </div>
 
           {/* ARCHIVED RECORDS */}
 

@@ -16,6 +16,8 @@ import { getRenewals } from "../data/renewalStore";
 
 import { getActiveSalesPersons } from "../data/salesPersonStore";
 
+import { playSound } from "../audio/soundManager";
+
 const priorities: FollowUpPriority[] = ["High", "Medium", "Low"];
 
 const followUpTypes = ["Call", "WhatsApp", "Meeting", "Email", "Demo", "Other"];
@@ -584,6 +586,8 @@ export default function AddFollowUp() {
       if (!createdFollowUp) {
         throw new Error("Follow-up could not be saved.");
       }
+
+      await playSound("success");
 
       /*
        * Return to the Lead after successful save.

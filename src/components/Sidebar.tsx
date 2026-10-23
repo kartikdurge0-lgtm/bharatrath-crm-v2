@@ -13,6 +13,11 @@ const menuSections = [
     title: "SERVICES",
     items: [{ label: "Services", path: "/services", icon: "🛠️" }],
   },
+
+  {
+    title: "TEAM HUB",
+    items: [{ label: "Daily Status", path: "/daily-status", icon: "📋" }],
+  },
   {
     title: "REPORTS",
     items: [{ label: "Reports", path: "/reports", icon: "📊" }],

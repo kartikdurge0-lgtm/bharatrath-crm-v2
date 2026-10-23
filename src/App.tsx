@@ -65,6 +65,8 @@ import Reports from "./pages/Reports";
 // Settings
 import Settings from "./pages/Settings";
 
+import DailyStatus from "./pages/DailyStatus";
+
 function App() {
   return (
     <BrowserRouter>
@@ -88,6 +90,8 @@ function App() {
             ================================================= */}
 
             <Route path="/" element={<Dashboard />} />
+
+            <Route path="/daily-status" element={<DailyStatus />} />
 
             {/* =================================================
                 CLIENT MANAGEMENT

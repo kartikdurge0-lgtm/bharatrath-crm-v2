@@ -1,33 +1,58 @@
 /* =========================================================
+
    QUOTATION STORE
+
    Bharatrath CRM
+
+
 
    PHASE 2 — SUPABASE SOURCE OF TRUTH
 
+
+
    Rules:
+
    1. Quotations are never permanently deleted.
+
    2. Archived quotations remain in Supabase history.
+
    3. Active quotation reads exclude archived records.
+
    4. Quotation numbers are immutable after creation.
+
    5. Totals are recalculated by the store before every write.
+
    6. Frontend CRM IDs (QT-xxx / CL-xxx / LEAD-xxx / SP-xxx)
+
       are display IDs. Supabase relationships use numeric IDs.
+
    7. LocalStorage is NOT used for quotation business data.
 
+
+
    IMPORTANT DB PREREQUISITE:
+
    The current Supabase schema must contain:
+
      quotations.is_archived boolean
+
      quotations.archived_at timestamptz
 
+
+
    These columns are required for archive-only deletion.
-========================================================= */
+
+\========================================================= */
 
 import { supabase } from "../lib/supabase";
+
 import { createActivityLog } from "./activityLogStore";
 
 /* =========================================================
+
    TYPES
-========================================================= */
+
+\========================================================= */
 
 export type QuotationStatus =
   | "Draft"
@@ -38,11 +63,19 @@ export type QuotationStatus =
 
 export type QuotationItem = {
   serviceId: string;
+
+  serviceName?: string;
+
   description: string;
+
   sac: string;
+
   basicCost: number;
+
   discountedCost: number;
+
   finalCost: number;
+
   frequency: string;
 };
 
@@ -52,97 +85,139 @@ export type Quotation = {
   leadId?: string;
 
   clientId: string;
+
   clientName: string;
 
   salesPersonId?: string;
+
   salesPersonName?: string;
 
   quotationNumber: string;
+
   quotationDate: string;
+
   validUntil: string;
+
   status: QuotationStatus;
 
   items: QuotationItem[];
 
   tax: number;
+
   subtotal: number;
+
   taxAmount: number;
+
   grandTotal: number;
 
   scopeOfWork: string;
+
   implementationProcess: string;
+
   supportTraining: string;
+
   remarks: string;
+
   termsConditions: string;
 
   createdAt: string;
+
   updatedAt?: string;
 
   isArchived?: boolean;
+
   archivedAt?: string;
 };
 
 /* =========================================================
+
    DATABASE ROW TYPES
-========================================================= */
+
+\========================================================= */
 
 type QuotationRow = {
   id: number;
-  client_id: number;
+
+  client_id: number | null;
+
   lead_id: number | null;
+
   sales_person_id: number | null;
 
   quotation_number: string;
+
   quotation_date: string;
+
   valid_until: string | null;
 
   service_name: string | null;
+
   items: unknown;
 
   scope_of_work: string | null;
+
   remarks: string | null;
+
   implementation_process: string | null;
+
   support_training: string | null;
 
-  amount: number | null;
-  tax: number | null;
   subtotal: number | null;
+
+  discount: number | null;
+
+  tax: number | null;
+
+  tax_percent: number | null;
+
   tax_amount: number | null;
-  grand_total: number | null;
+
+  total_amount: number | null;
 
   terms_conditions: string | null;
+
   status: string;
 
   created_by: string | null;
+
   created_at: string;
+
   updated_at: string;
 
   is_archived: boolean | null;
+
   archived_at: string | null;
 };
 
 type ClientRow = {
   id: number;
+
   crm_client_id: string | null;
+
   company_name: string | null;
 };
 
 type SalesPersonRow = {
   id: number;
+
   name: string | null;
 };
 
 /* =========================================================
+
    CONSTANTS
-========================================================= */
+
+\========================================================= */
 
 const DEFAULT_QUOTATION_PREFIX = "QUO-";
 
 const QUOTATION_ID_PREFIX = "QT";
 
 /* =========================================================
+
    GENERIC HELPERS
-========================================================= */
+
+\========================================================= */
 
 function normalizeNumber(value: unknown): number {
   const number = Number(value);
@@ -156,6 +231,7 @@ function formatDisplayId(prefix: string, id: number): string {
 
 function getDatabaseId(
   displayId: string | undefined,
+
   prefix: string,
 ): number | null {
   const value = String(displayId || "").trim();
@@ -179,12 +255,16 @@ function normalizeStatus(value: unknown): QuotationStatus {
   switch (String(value || "")) {
     case "Sent":
       return "Sent";
+
     case "Accepted":
       return "Accepted";
+
     case "Rejected":
       return "Rejected";
+
     case "Expired":
       return "Expired";
+
     default:
       return "Draft";
   }
@@ -203,23 +283,32 @@ function quotationDescription(quotation: Quotation, action: string): string {
 
   switch (action) {
     case "CREATE":
-      return `Created quotation "${name}" for "${quotation.clientName}"`;
+      return quotation.clientName.trim()
+        ? `Created quotation "${name}" for "${quotation.clientName}"`
+        : `Created quotation "${name}" for lead "${quotation.leadId || ""}"`;
+
     case "UPDATE":
       return `Updated quotation "${name}"`;
+
     case "STATUS_CHANGED":
       return `Changed quotation "${name}" status`;
+
     case "ARCHIVE":
       return `Archived quotation "${name}"`;
+
     case "RESTORE":
       return `Restored quotation "${name}"`;
+
     default:
       return `${action} quotation "${name}"`;
   }
 }
 
 /* =========================================================
+
    ITEM NORMALIZATION
-========================================================= */
+
+\========================================================= */
 
 function normalizeQuotationItems(items: unknown): QuotationItem[] {
   if (!Array.isArray(items)) {
@@ -237,40 +326,49 @@ function normalizeQuotationItems(items: unknown): QuotationItem[] {
 
     const discountedCost = Math.min(
       basicCost,
-      Math.max(0, normalizeNumber(item.discountedCost ?? item.discounted_cost)),
+      Math.max(
+        0,
+        normalizeNumber(
+          item.discountedCost ?? item.discounted_cost ?? item.discount ?? 0,
+        ),
+      ),
     );
 
-    let finalCost = normalizeNumber(item.finalCost ?? item.final_cost);
+    const calculatedFinalCost = Math.max(0, basicCost - discountedCost);
 
-    /*
-     * Backward-compatible pricing rule:
-     * finalCost → discountedCost → basicCost
-     */
-    if (finalCost <= 0) {
-      finalCost = discountedCost > 0 ? discountedCost : basicCost;
-    }
+    const storedFinalCost = item.finalCost ?? item.final_cost;
+
+    const finalCost =
+      storedFinalCost !== undefined && storedFinalCost !== null
+        ? Math.max(0, normalizeNumber(storedFinalCost))
+        : calculatedFinalCost;
 
     return {
+      ...item,
       serviceId: String(item.serviceId ?? item.service_id ?? ""),
-      description: String(item.description || ""),
-      sac: String(item.sac || ""),
+      serviceName: String(item.serviceName ?? item.service_name ?? "").trim(),
+      description: String(item.description ?? "").trim(),
+      sac: String(item.sac ?? item.sacCode ?? ""),
       basicCost,
       discountedCost,
-      finalCost: Math.max(0, finalCost),
-      frequency: String(item.frequency || ""),
+      finalCost,
+      frequency: String(item.frequency ?? ""),
     };
   });
 }
 
 /* =========================================================
+
    TOTAL CALCULATION
-========================================================= */
+
+\========================================================= */
 
 export function calculateQuotationTotals(items: QuotationItem[], tax: number) {
   const normalizedItems = normalizeQuotationItems(items);
 
   const subtotal = normalizedItems.reduce(
     (total, item) => total + normalizeNumber(item.finalCost),
+
     0,
   );
 
@@ -282,32 +380,46 @@ export function calculateQuotationTotals(items: QuotationItem[], tax: number) {
 
   return {
     subtotal,
+
     taxAmount,
+
     grandTotal,
   };
 }
 
 /* =========================================================
+
    RELATION RESOLUTION
-========================================================= */
+
+\========================================================= */
 
 async function resolveClientDatabaseId(
   clientDisplayId: string | undefined,
+
   clientName?: string,
 ): Promise<number | null> {
   /* -------------------------------------------------------
+
      1. BEST: crm_client_id
+
   ------------------------------------------------------- */
+
   if (clientDisplayId?.trim()) {
     const { data, error } = await supabase
+
       .from("clients")
+
       .select("id")
+
       .eq("crm_client_id", clientDisplayId.trim())
+
       .eq("is_archived", false)
+
       .maybeSingle();
 
     if (error) {
       console.error("Quotation client CRM ID lookup error:", error);
+
       throw error;
     }
 
@@ -317,19 +429,29 @@ async function resolveClientDatabaseId(
   }
 
   /* -------------------------------------------------------
+
      2. Safe company-name fallback
+
      Only exactly one active client is accepted.
+
   ------------------------------------------------------- */
+
   if (clientName?.trim()) {
     const { data, error } = await supabase
+
       .from("clients")
+
       .select("id, crm_client_id, company_name")
+
       .eq("company_name", clientName.trim())
+
       .eq("is_archived", false)
+
       .limit(2);
 
     if (error) {
       console.error("Quotation client name lookup error:", error);
+
       throw error;
     }
 
@@ -345,20 +467,29 @@ async function resolveClientDatabaseId(
   }
 
   /* -------------------------------------------------------
+
      3. Legacy CL-xxx numeric fallback
+
   ------------------------------------------------------- */
+
   const numericId = getDatabaseId(clientDisplayId, "CL");
 
   if (numericId !== null) {
     const { data, error } = await supabase
+
       .from("clients")
+
       .select("id")
+
       .eq("id", numericId)
+
       .eq("is_archived", false)
+
       .maybeSingle();
 
     if (error) {
       console.error("Quotation client numeric lookup error:", error);
+
       throw error;
     }
 
@@ -380,13 +511,18 @@ async function resolveLeadDatabaseId(
   }
 
   const { data, error } = await supabase
+
     .from("leads")
+
     .select("id")
+
     .eq("id", numericId)
+
     .maybeSingle();
 
   if (error) {
     console.error("Quotation lead lookup error:", error);
+
     throw error;
   }
 
@@ -395,19 +531,25 @@ async function resolveLeadDatabaseId(
 
 async function resolveSalesPersonDatabaseId(
   displayId?: string,
+
   name?: string,
 ): Promise<number | null> {
   const numericId = getDatabaseId(displayId, "SP");
 
   if (numericId !== null) {
     const { data, error } = await supabase
+
       .from("sales_persons")
+
       .select("id")
+
       .eq("id", numericId)
+
       .maybeSingle();
 
     if (error) {
       console.error("Quotation salesperson ID lookup error:", error);
+
       throw error;
     }
 
@@ -418,13 +560,18 @@ async function resolveSalesPersonDatabaseId(
 
   if (name?.trim()) {
     const { data, error } = await supabase
+
       .from("sales_persons")
+
       .select("id, name")
+
       .eq("name", name.trim())
+
       .limit(2);
 
     if (error) {
       console.error("Quotation salesperson name lookup error:", error);
+
       throw error;
     }
 
@@ -443,22 +590,28 @@ async function resolveSalesPersonDatabaseId(
 }
 
 /* =========================================================
+
    BATCH RELATED DATA
-========================================================= */
+
+\========================================================= */
 
 async function loadRelatedMaps(rows: QuotationRow[]) {
   const clientIds = Array.from(
     new Set(
       rows
+
         .map((row) => row.client_id)
-        .filter((id): id is number => Number.isFinite(id)),
+
+        .filter((id): id is number => id !== null && Number.isFinite(id)),
     ),
   );
 
   const salesPersonIds = Array.from(
     new Set(
       rows
+
         .map((row) => row.sales_person_id)
+
         .filter((id): id is number => id !== null),
     ),
   );
@@ -466,21 +619,28 @@ async function loadRelatedMaps(rows: QuotationRow[]) {
   const clientPromise =
     clientIds.length > 0
       ? supabase
+
           .from("clients")
+
           .select("id, crm_client_id, company_name")
+
           .in("id", clientIds)
       : Promise.resolve({ data: [], error: null });
 
   const salesPersonPromise =
     salesPersonIds.length > 0
       ? supabase
+
           .from("sales_persons")
+
           .select("id, name")
+
           .in("id", salesPersonIds)
       : Promise.resolve({ data: [], error: null });
 
   const [clientsResult, salesResult] = await Promise.all([
     clientPromise,
+
     salesPersonPromise,
   ]);
 
@@ -493,6 +653,7 @@ async function loadRelatedMaps(rows: QuotationRow[]) {
   }
 
   const clientMap = new Map<number, ClientRow>();
+
   const salesMap = new Map<number, SalesPersonRow>();
 
   for (const row of (clientsResult.data || []) as ClientRow[]) {
@@ -505,27 +666,36 @@ async function loadRelatedMaps(rows: QuotationRow[]) {
 
   return {
     clientMap,
+
     salesMap,
   };
 }
 
 /* =========================================================
+
    DATABASE ROW → FRONTEND MODEL
-========================================================= */
+
+\========================================================= */
 
 function mapQuotationRow(
   row: QuotationRow,
+
   clientMap: Map<number, ClientRow>,
+
   salesMap: Map<number, SalesPersonRow>,
 ): Quotation {
-  const client = clientMap.get(Number(row.client_id));
+  const client =
+    row.client_id !== null ? clientMap.get(Number(row.client_id)) : undefined;
+
   const salesPerson =
     row.sales_person_id !== null
       ? salesMap.get(Number(row.sales_person_id))
       : undefined;
 
   const items = normalizeQuotationItems(row.items);
-  const tax = Math.max(0, normalizeNumber(row.tax));
+
+  const tax = Math.max(0, normalizeNumber(row.tax_percent ?? row.tax));
+
   const totals = calculateQuotationTotals(items, tax);
 
   return {
@@ -537,7 +707,9 @@ function mapQuotationRow(
         : undefined,
 
     clientId:
-      client?.crm_client_id || formatDisplayId("CL", Number(row.client_id)),
+      row.client_id !== null
+        ? client?.crm_client_id || formatDisplayId("CL", Number(row.client_id))
+        : "",
 
     clientName: client?.company_name || "",
 
@@ -561,43 +733,65 @@ function mapQuotationRow(
     tax,
 
     /*
+
      * Store-calculated totals are authoritative.
+
      * DB values are retained only as legacy compatibility.
+
      */
+
     subtotal: totals.subtotal,
+
     taxAmount: totals.taxAmount,
+
     grandTotal: totals.grandTotal,
 
     scopeOfWork: String(row.scope_of_work || ""),
+
     implementationProcess: String(row.implementation_process || ""),
+
     supportTraining: String(row.support_training || ""),
+
     remarks: String(row.remarks || ""),
+
     termsConditions: String(row.terms_conditions || ""),
 
     createdAt: row.created_at,
+
     updatedAt: row.updated_at,
 
     isArchived: row.is_archived === true,
+
     archivedAt: row.archived_at || undefined,
   };
 }
 
 /* =========================================================
+
    GET ALL QUOTATIONS
+
    ---------------------------------------------------------
+
    Includes archived records.
+
    Used for history and number generation.
-========================================================= */
+
+\========================================================= */
 
 export async function getQuotations(): Promise<Quotation[]> {
   const { data, error } = await supabase
+
     .from("quotations")
+
     .select("*")
+
     .order("created_at", { ascending: false })
+
     .order("id", { ascending: false });
 
   if (error) {
     console.error("Failed to load quotations:", error);
+
     throw error;
   }
 
@@ -613,8 +807,10 @@ export async function getQuotations(): Promise<Quotation[]> {
 }
 
 /* =========================================================
+
    GET SINGLE ACTIVE QUOTATION
-========================================================= */
+
+\========================================================= */
 
 export async function getQuotation(id: string): Promise<Quotation | null> {
   const databaseId = getDatabaseId(id, QUOTATION_ID_PREFIX);
@@ -624,14 +820,20 @@ export async function getQuotation(id: string): Promise<Quotation | null> {
   }
 
   const { data, error } = await supabase
+
     .from("quotations")
+
     .select("*")
+
     .eq("id", databaseId)
+
     .eq("is_archived", false)
+
     .maybeSingle();
 
   if (error) {
     console.error("Failed to load quotation:", error);
+
     throw error;
   }
 
@@ -640,14 +842,17 @@ export async function getQuotation(id: string): Promise<Quotation | null> {
   }
 
   const row = data as QuotationRow;
+
   const maps = await loadRelatedMaps([row]);
 
   return mapQuotationRow(row, maps.clientMap, maps.salesMap);
 }
 
 /* =========================================================
+
    GET SINGLE QUOTATION INCLUDING ARCHIVED
-========================================================= */
+
+\========================================================= */
 
 export async function getQuotationIncludingArchived(
   id: string,
@@ -659,13 +864,18 @@ export async function getQuotationIncludingArchived(
   }
 
   const { data, error } = await supabase
+
     .from("quotations")
+
     .select("*")
+
     .eq("id", databaseId)
+
     .maybeSingle();
 
   if (error) {
     console.error("Failed to load quotation history record:", error);
+
     throw error;
   }
 
@@ -674,29 +884,42 @@ export async function getQuotationIncludingArchived(
   }
 
   const row = data as QuotationRow;
+
   const maps = await loadRelatedMaps([row]);
 
   return mapQuotationRow(row, maps.clientMap, maps.salesMap);
 }
 
 /* =========================================================
+
    GENERATE INTERNAL QUOTATION ID
+
    ---------------------------------------------------------
+
    Database identity is the real ID source.
 
+
+
    This function exists for UI compatibility only.
-========================================================= */
+
+\========================================================= */
 
 export async function generateQuotationId(): Promise<string> {
   const { data, error } = await supabase
+
     .from("quotations")
+
     .select("id")
+
     .order("id", { ascending: false })
+
     .limit(1)
+
     .maybeSingle();
 
   if (error) {
     console.error("Failed to generate quotation ID:", error);
+
     throw error;
   }
 
@@ -706,23 +929,35 @@ export async function generateQuotationId(): Promise<string> {
 }
 
 /* =========================================================
+
    GENERATE QUOTATION NUMBER
+
    ---------------------------------------------------------
+
    Current format:
+
    QUO-001
+
    QUO-002
+
    ...
 
+
+
    Archived records are included so numbers are never reused.
-========================================================= */
+
+\========================================================= */
 
 export async function generateQuotationNumber(): Promise<string> {
   const { data, error } = await supabase
+
     .from("quotations")
+
     .select("quotation_number");
 
   if (error) {
     console.error("Failed to generate quotation number:", error);
+
     throw error;
   }
 
@@ -746,6 +981,7 @@ export async function generateQuotationNumber(): Promise<string> {
 
   return `${DEFAULT_QUOTATION_PREFIX}${String(highestNumber + 1).padStart(
     3,
+
     "0",
   )}`;
 }
@@ -755,20 +991,27 @@ export function getQuotationNumberPrefix(): string {
 }
 
 /* =========================================================
+
    ENSURE UNIQUE QUOTATION NUMBER
-========================================================= */
+
+\========================================================= */
 
 async function ensureUniqueQuotationNumber(
   requestedNumber?: string,
+
   ignoredDatabaseId?: number,
 ): Promise<string> {
   const requested = String(requestedNumber || "").trim();
 
   if (requested) {
     let query = supabase
+
       .from("quotations")
+
       .select("id")
+
       .ilike("quotation_number", requested)
+
       .limit(2);
 
     if (ignoredDatabaseId !== undefined) {
@@ -790,28 +1033,44 @@ async function ensureUniqueQuotationNumber(
 }
 
 /* =========================================================
+
    BUILD DATABASE PAYLOAD
-========================================================= */
+
+\========================================================= */
 
 async function buildQuotationPayload(
   quotation: Quotation,
+
   ignoredDatabaseId?: number,
 ) {
   const clientDatabaseId = await resolveClientDatabaseId(
     quotation.clientId,
+
     quotation.clientName,
   );
 
-  if (clientDatabaseId === null) {
+  const hasClientSelection = Boolean(
+    String(quotation.clientId || "").trim() ||
+    String(quotation.clientName || "").trim(),
+  );
+
+  // Client is optional for quotations created directly from a Lead.
+  // If a Client was explicitly selected but cannot be resolved, fail safely.
+  if (clientDatabaseId === null && hasClientSelection) {
     throw new Error(
       `Client "${quotation.clientName || quotation.clientId}" was not found in Supabase.`,
     );
+  }
+
+  if (clientDatabaseId === null && !String(quotation.leadId || "").trim()) {
+    throw new Error("Select a Client or a Lead before saving the quotation.");
   }
 
   const leadDatabaseId = await resolveLeadDatabaseId(quotation.leadId);
 
   const salesPersonDatabaseId = await resolveSalesPersonDatabaseId(
     quotation.salesPersonId,
+
     quotation.salesPersonName,
   );
 
@@ -823,16 +1082,26 @@ async function buildQuotationPayload(
 
   const tax = Math.max(0, normalizeNumber(quotation.tax));
 
+  const totals = calculateQuotationTotals(items, tax);
+
+  const totalDiscount = items.reduce(
+    (sum, item) => sum + normalizeNumber(item.discountedCost),
+    0,
+  );
+
   const quotationNumber = await ensureUniqueQuotationNumber(
     quotation.quotationNumber,
+
     ignoredDatabaseId,
   );
 
-  const serviceName = items[0]?.description?.trim() || "Quotation";
+  const serviceName = items[0]?.serviceName?.trim() || "Quotation";
 
   return {
     client_id: clientDatabaseId,
+
     lead_id: leadDatabaseId,
+
     sales_person_id: salesPersonDatabaseId,
 
     quotation_number: quotationNumber,
@@ -845,20 +1114,38 @@ async function buildQuotationPayload(
     service_name: serviceName,
 
     /*
+
      * Keep JSON items because the existing invoice and quotation
+
      * UI already consumes this field and the database schema
+
      * contains the JSON representation.
+
      */
+
     items,
 
-    scope_of_work: quotation.scopeOfWork || null,
-    remarks: quotation.remarks || null,
-    implementation_process: quotation.implementationProcess || null,
-    support_training: quotation.supportTraining || null,
+    // Production quotation financial columns.
+    // Each item's finalCost is the net amount after discount.
+    subtotal: totals.subtotal,
 
-    // The current DEV quotations table stores the GST rate.
-    // Subtotal / tax amount / grand total are calculated from items in the CRM.
+    discount: totalDiscount,
+
     tax,
+
+    tax_percent: tax,
+
+    tax_amount: totals.taxAmount,
+
+    total_amount: totals.grandTotal,
+
+    scope_of_work: quotation.scopeOfWork || null,
+
+    remarks: quotation.remarks || null,
+
+    implementation_process: quotation.implementationProcess || null,
+
+    support_training: quotation.supportTraining || null,
 
     terms_conditions: quotation.termsConditions || null,
 
@@ -867,41 +1154,59 @@ async function buildQuotationPayload(
 }
 
 /* =========================================================
+
    ADD QUOTATION
-========================================================= */
+
+\========================================================= */
 
 export async function addQuotation(quotation: Quotation): Promise<Quotation> {
   const payload = await buildQuotationPayload(quotation);
 
   /*
+
    * ID and created_at are generated by Supabase.
+
    * The frontend-provided QT ID is intentionally ignored.
+
    */
+
   const { data, error } = await supabase
+
     .from("quotations")
+
     .insert({
       ...payload,
+
       is_archived: false,
     })
+
     .select("*")
+
     .single();
 
   if (error) {
     console.error("Failed to create quotation:", error);
+
     throw error;
   }
 
   const row = data as QuotationRow;
+
   const maps = await loadRelatedMaps([row]);
 
   const createdQuotation = mapQuotationRow(row, maps.clientMap, maps.salesMap);
 
   void createActivityLog({
     action: "CREATE",
+
     module: "Quotations",
+
     record_id: createdQuotation.id,
+
     record_name: quotationRecordName(createdQuotation),
+
     description: quotationDescription(createdQuotation, "CREATE"),
+
     new_data: createdQuotation as unknown as Record<string, unknown>,
   });
 
@@ -909,11 +1214,14 @@ export async function addQuotation(quotation: Quotation): Promise<Quotation> {
 }
 
 /* =========================================================
+
    UPDATE QUOTATION
-========================================================= */
+
+\========================================================= */
 
 export async function updateQuotation(
   id: string,
+
   updates: Partial<Quotation>,
 ): Promise<Quotation | null> {
   const databaseId = getDatabaseId(id, QUOTATION_ID_PREFIX);
@@ -929,62 +1237,89 @@ export async function updateQuotation(
   }
 
   /*
+
    * Immutable fields are restored from the existing record.
+
    */
+
   const mergedQuotation: Quotation = {
     ...existing,
+
     ...updates,
 
     id: existing.id,
+
     quotationNumber: existing.quotationNumber,
 
     isArchived: false,
+
     archivedAt: undefined,
   };
 
   const payload = await buildQuotationPayload(mergedQuotation, databaseId);
 
   /*
+
    * IMPORTANT:
+
    * We explicitly restore the existing quotation number.
+
    * ensureUniqueQuotationNumber() is only a safety check.
+
    */
+
   payload.quotation_number = existing.quotationNumber;
 
   const { data, error } = await supabase
+
     .from("quotations")
+
     .update({
       ...payload,
+
       updated_at: new Date().toISOString(),
     })
+
     .eq("id", databaseId)
+
     .eq("is_archived", false)
+
     .select("*")
+
     .single();
 
   if (error) {
     console.error("Failed to update quotation:", error);
+
     throw error;
   }
 
   const row = data as QuotationRow;
+
   const maps = await loadRelatedMaps([row]);
 
   const updatedQuotation = mapQuotationRow(row, maps.clientMap, maps.salesMap);
 
   const oldData = existing as unknown as Record<string, unknown>;
+
   const newData = updatedQuotation as unknown as Record<string, unknown>;
 
   if (existing.status !== updatedQuotation.status) {
     void createActivityLog({
       action: "STATUS_CHANGED",
+
       module: "Quotations",
+
       record_id: updatedQuotation.id,
+
       record_name: quotationRecordName(updatedQuotation),
+
       description: `Changed quotation "${quotationRecordName(
         updatedQuotation,
       )}" status from "${existing.status}" to "${updatedQuotation.status}"`,
+
       old_data: oldData,
+
       new_data: newData,
     });
   }
@@ -1003,11 +1338,17 @@ export async function updateQuotation(
   if (changedKeys.length > 0) {
     void createActivityLog({
       action: "UPDATE",
+
       module: "Quotations",
+
       record_id: updatedQuotation.id,
+
       record_name: quotationRecordName(updatedQuotation),
+
       description: quotationDescription(updatedQuotation, "UPDATE"),
+
       old_data: oldData,
+
       new_data: newData,
     });
   }
@@ -1016,10 +1357,14 @@ export async function updateQuotation(
 }
 
 /* =========================================================
+
    ARCHIVE QUOTATION
+
    ---------------------------------------------------------
+
    Never permanently deletes a quotation.
-========================================================= */
+
+\========================================================= */
 
 export async function deleteQuotation(id: string): Promise<boolean> {
   const databaseId = getDatabaseId(id, QUOTATION_ID_PREFIX);
@@ -1036,18 +1381,27 @@ export async function deleteQuotation(id: string): Promise<boolean> {
 
   const now = new Date().toISOString();
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("quotations")
     .update({
       is_archived: true,
+      archived_at: now,
       updated_at: now,
     })
     .eq("id", databaseId)
-    .eq("is_archived", false);
+    .eq("is_archived", false)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     console.error("Failed to archive quotation:", error);
     throw error;
+  }
+
+  // No row updated: do not report a false success.
+  if (!data) {
+    console.error("Quotation archive failed: no row was updated.", id);
+    return false;
   }
 
   void createActivityLog({
@@ -1068,8 +1422,10 @@ export async function deleteQuotation(id: string): Promise<boolean> {
 }
 
 /* =========================================================
+
    RESTORE ARCHIVED QUOTATION
-========================================================= */
+
+\========================================================= */
 
 export async function restoreQuotation(id: string): Promise<Quotation | null> {
   const databaseId = getDatabaseId(id, QUOTATION_ID_PREFIX);
@@ -1087,33 +1443,48 @@ export async function restoreQuotation(id: string): Promise<Quotation | null> {
   const now = new Date().toISOString();
 
   const { data, error } = await supabase
+
     .from("quotations")
+
     .update({
       is_archived: false,
+
       updated_at: now,
     })
+
     .eq("id", databaseId)
+
     .eq("is_archived", true)
+
     .select("*")
+
     .single();
 
   if (error) {
     console.error("Failed to restore quotation:", error);
+
     throw error;
   }
 
   const row = data as QuotationRow;
+
   const maps = await loadRelatedMaps([row]);
 
   const restoredQuotation = mapQuotationRow(row, maps.clientMap, maps.salesMap);
 
   void createActivityLog({
     action: "RESTORE",
+
     module: "Quotations",
+
     record_id: restoredQuotation.id,
+
     record_name: quotationRecordName(restoredQuotation),
+
     description: quotationDescription(restoredQuotation, "RESTORE"),
+
     old_data: quotation as unknown as Record<string, unknown>,
+
     new_data: restoredQuotation as unknown as Record<string, unknown>,
   });
 
@@ -1121,19 +1492,27 @@ export async function restoreQuotation(id: string): Promise<Quotation | null> {
 }
 
 /* =========================================================
+
    ARCHIVED QUOTATIONS
-========================================================= */
+
+\========================================================= */
 
 export async function getArchivedQuotations(): Promise<Quotation[]> {
   const { data, error } = await supabase
+
     .from("quotations")
+
     .select("*")
+
     .eq("is_archived", true)
+
     .order("created_at", { ascending: false })
+
     .order("id", { ascending: false });
 
   if (error) {
     console.error("Failed to load archived quotations:", error);
+
     throw error;
   }
 
@@ -1149,11 +1528,14 @@ export async function getArchivedQuotations(): Promise<Quotation[]> {
 }
 
 /* =========================================================
+
    STATUS HELPERS
-========================================================= */
+
+\========================================================= */
 
 export async function updateQuotationStatus(
   id: string,
+
   status: QuotationStatus,
 ): Promise<Quotation | null> {
   return updateQuotation(id, { status });
@@ -1178,8 +1560,10 @@ export async function expireQuotation(id: string): Promise<Quotation | null> {
 }
 
 /* =========================================================
+
    DUPLICATE QUOTATION
-========================================================= */
+
+\========================================================= */
 
 export async function duplicateQuotation(
   id: string,
@@ -1191,15 +1575,20 @@ export async function duplicateQuotation(
   }
 
   const quotationNumber = await generateQuotationNumber();
+
   const now = new Date().toISOString();
 
   const duplicate: Quotation = {
     ...quotation,
 
     /*
+
      * addQuotation() ignores this ID and lets Supabase
+
      * generate the actual identity.
+
      */
+
     id: "",
 
     quotationNumber,
@@ -1209,9 +1598,11 @@ export async function duplicateQuotation(
     status: "Draft",
 
     isArchived: false,
+
     archivedAt: undefined,
 
     createdAt: now,
+
     updatedAt: now,
   };
 
@@ -1219,8 +1610,10 @@ export async function duplicateQuotation(
 }
 
 /* =========================================================
+
    FILTER HELPERS
-========================================================= */
+
+\========================================================= */
 
 export async function getQuotationsByClient(
   clientId: string,
@@ -1232,11 +1625,17 @@ export async function getQuotationsByClient(
   }
 
   const { data, error } = await supabase
+
     .from("quotations")
+
     .select("*")
+
     .eq("client_id", databaseId)
+
     .eq("is_archived", false)
+
     .order("created_at", { ascending: false })
+
     .order("id", { ascending: false });
 
   if (error) {
@@ -1244,6 +1643,7 @@ export async function getQuotationsByClient(
   }
 
   const rows = (data || []) as QuotationRow[];
+
   const maps = await loadRelatedMaps(rows);
 
   return rows.map((row) => mapQuotationRow(row, maps.clientMap, maps.salesMap));
@@ -1259,11 +1659,17 @@ export async function getQuotationsByLead(
   }
 
   const { data, error } = await supabase
+
     .from("quotations")
+
     .select("*")
+
     .eq("lead_id", databaseId)
+
     .eq("is_archived", false)
+
     .order("created_at", { ascending: false })
+
     .order("id", { ascending: false });
 
   if (error) {
@@ -1271,6 +1677,7 @@ export async function getQuotationsByLead(
   }
 
   const rows = (data || []) as QuotationRow[];
+
   const maps = await loadRelatedMaps(rows);
 
   return rows.map((row) => mapQuotationRow(row, maps.clientMap, maps.salesMap));
@@ -1286,11 +1693,17 @@ export async function getQuotationsBySalesPerson(
   }
 
   const { data, error } = await supabase
+
     .from("quotations")
+
     .select("*")
+
     .eq("sales_person_id", databaseId)
+
     .eq("is_archived", false)
+
     .order("created_at", { ascending: false })
+
     .order("id", { ascending: false });
 
   if (error) {
@@ -1298,6 +1711,7 @@ export async function getQuotationsBySalesPerson(
   }
 
   const rows = (data || []) as QuotationRow[];
+
   const maps = await loadRelatedMaps(rows);
 
   return rows.map((row) => mapQuotationRow(row, maps.clientMap, maps.salesMap));
@@ -1307,11 +1721,17 @@ export async function getQuotationsByStatus(
   status: QuotationStatus,
 ): Promise<Quotation[]> {
   const { data, error } = await supabase
+
     .from("quotations")
+
     .select("*")
+
     .eq("status", status)
+
     .eq("is_archived", false)
+
     .order("created_at", { ascending: false })
+
     .order("id", { ascending: false });
 
   if (error) {
@@ -1319,14 +1739,17 @@ export async function getQuotationsByStatus(
   }
 
   const rows = (data || []) as QuotationRow[];
+
   const maps = await loadRelatedMaps(rows);
 
   return rows.map((row) => mapQuotationRow(row, maps.clientMap, maps.salesMap));
 }
 
 /* =========================================================
+
    SEARCH ACTIVE QUOTATIONS
-========================================================= */
+
+\========================================================= */
 
 export async function searchQuotations(search: string): Promise<Quotation[]> {
   const query = search.trim().toLowerCase();
@@ -1344,25 +1767,34 @@ export async function searchQuotations(search: string): Promise<Quotation[]> {
   return active.filter((quotation) => {
     const fields = [
       quotation.clientName,
+
       quotation.quotationNumber,
+
       quotation.status,
+
       quotation.salesPersonName,
+
       quotation.id,
+
       quotation.leadId,
+
       quotation.items?.[0]?.description,
     ];
 
     return fields.some((field) =>
       String(field || "")
         .toLowerCase()
+
         .includes(query),
     );
   });
 }
 
 /* =========================================================
+
    STATISTICS
-========================================================= */
+
+\========================================================= */
 
 export async function getQuotationStats() {
   const quotations = (await getQuotations()).filter(
@@ -1392,32 +1824,45 @@ export async function getQuotationStats() {
   ).length;
 
   const acceptedValue = quotations
+
     .filter((quotation) => quotation.status === "Accepted")
+
     .reduce(
       (totalValue, quotation) =>
         totalValue + normalizeNumber(quotation.grandTotal),
+
       0,
     );
 
   const pendingValue = quotations
+
     .filter(
       (quotation) =>
         quotation.status === "Sent" || quotation.status === "Draft",
     )
+
     .reduce(
       (totalValue, quotation) =>
         totalValue + normalizeNumber(quotation.grandTotal),
+
       0,
     );
 
   return {
     total,
+
     draft,
+
     sent,
+
     accepted,
+
     rejected,
+
     expired,
+
     acceptedValue,
+
     pendingValue,
   };
 }

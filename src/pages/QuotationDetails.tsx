@@ -25,6 +25,8 @@ export default function QuotationDetails() {
   const [lead, setLead] = useState<Lead | null>(null);
   const [loadingQuotation, setLoadingQuotation] = useState(true);
   const [loadingLead, setLoadingLead] = useState(false);
+  const [statusActionLoading, setStatusActionLoading] = useState(false);
+  const [actionError, setActionError] = useState("");
   const [existingInvoice, setExistingInvoice] = useState<Invoice | undefined>(
     undefined,
   );
@@ -192,37 +194,66 @@ export default function QuotationDetails() {
     }
   }
 
-  function handleMarkSent() {
-    if (!quotation) return;
+  async function handleStatusUpdate(action: "Sent" | "Accepted" | "Rejected") {
+    if (!quotation || statusActionLoading) return;
 
-    markQuotationAsSent(quotation.id);
-    window.location.reload();
+    if (action !== "Sent") {
+      const confirmed = window.confirm(
+        action === "Accepted"
+          ? `Mark quotation ${quotation.quotationNumber} as Accepted?`
+          : `Mark quotation ${quotation.quotationNumber} as Rejected?`,
+      );
+      if (!confirmed) return;
+    }
+
+    setStatusActionLoading(true);
+    setActionError("");
+
+    try {
+      const updated =
+        action === "Sent"
+          ? await markQuotationAsSent(quotation.id)
+          : action === "Accepted"
+            ? await acceptQuotation(quotation.id)
+            : await rejectQuotation(quotation.id);
+
+      if (!updated) {
+        throw new Error(
+          "Quotation status could not be saved. Please try again.",
+        );
+      }
+
+      setQuotation(updated);
+
+      if (action === "Accepted") {
+        const invoice = await getInvoiceByQuotationReference(
+          updated.id,
+          updated.quotationNumber,
+        );
+        setExistingInvoice(invoice);
+      }
+    } catch (error) {
+      console.error("Failed to update quotation status:", error);
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Quotation status could not be updated. Please try again.",
+      );
+    } finally {
+      setStatusActionLoading(false);
+    }
+  }
+
+  function handleMarkSent() {
+    void handleStatusUpdate("Sent");
   }
 
   function handleAccept() {
-    if (!quotation) return;
-
-    const confirmed = window.confirm(
-      `Mark quotation ${quotation.quotationNumber} as Accepted?`,
-    );
-
-    if (!confirmed) return;
-
-    acceptQuotation(quotation.id);
-    window.location.reload();
+    void handleStatusUpdate("Accepted");
   }
 
   function handleReject() {
-    if (!quotation) return;
-
-    const confirmed = window.confirm(
-      `Mark quotation ${quotation.quotationNumber} as Rejected?`,
-    );
-
-    if (!confirmed) return;
-
-    rejectQuotation(quotation.id);
-    window.location.reload();
+    void handleStatusUpdate("Rejected");
   }
 
   function handleInvoiceAction() {
@@ -386,13 +417,15 @@ export default function QuotationDetails() {
             <p className="mt-2 text-sm text-gray-600">{client.contactPerson}</p>
           )}
 
-          <button
-            type="button"
-            onClick={() => navigate(`/clients/${quotation.clientId}`)}
-            className="mt-3 text-xs font-semibold text-green-700 hover:underline"
-          >
-            View Client →
-          </button>
+          {quotation.clientId && quotation.clientName && (
+            <button
+              type="button"
+              onClick={() => navigate(`/clients/${quotation.clientId}`)}
+              className="mt-3 text-xs font-semibold text-green-700 hover:underline"
+            >
+              View Client →
+            </button>
+          )}
         </div>
 
         {/* LEAD */}
@@ -454,6 +487,12 @@ export default function QuotationDetails() {
           STATUS ACTIONS
       ===================================================== */}
 
+      {actionError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 print:hidden">
+          {actionError}
+        </div>
+      )}
+
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm print:hidden">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -475,7 +514,7 @@ export default function QuotationDetails() {
               <button
                 type="button"
                 onClick={handleMarkSent}
-                className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+                className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Mark as Sent
               </button>
@@ -486,7 +525,7 @@ export default function QuotationDetails() {
                 <button
                   type="button"
                   onClick={handleAccept}
-                  className="rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+                  className="rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Accept Quotation
                 </button>
@@ -494,7 +533,7 @@ export default function QuotationDetails() {
                 <button
                   type="button"
                   onClick={handleReject}
-                  className="rounded-lg border border-red-300 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50"
+                  className="rounded-lg border border-red-300 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Reject
                 </button>
@@ -634,12 +673,12 @@ export default function QuotationDetails() {
           </p>
 
           <p className="text-base font-bold text-gray-900">
-            {quotation.clientName}
+            {quotation.clientName || lead?.companyName || "—"}
           </p>
 
-          <p className="mt-1 text-xs text-gray-600">
-            Client ID: {quotation.clientId}
-          </p>
+          {!quotation.clientName && lead?.id && (
+            <p className="mt-1 text-xs text-gray-600">Lead ID: {lead.id}</p>
+          )}
 
           {client?.contactPerson && (
             <p className="mt-1 text-xs text-gray-600">
@@ -653,6 +692,34 @@ export default function QuotationDetails() {
 
           {client?.email && (
             <p className="mt-1 text-xs text-gray-600">Email: {client.email}</p>
+          )}
+
+          {!quotation.clientName && lead && (
+            <>
+              {lead.contactPerson && (
+                <p className="mt-1 text-xs text-gray-600">
+                  Contact Person: {lead.contactPerson}
+                </p>
+              )}
+
+              {lead.phone && (
+                <p className="mt-1 text-xs text-gray-600">
+                  Phone: {lead.phone}
+                </p>
+              )}
+
+              {lead.email && (
+                <p className="mt-1 text-xs text-gray-600">
+                  Email: {lead.email}
+                </p>
+              )}
+
+              {lead.address && (
+                <p className="mt-1 whitespace-pre-line text-xs text-gray-600">
+                  Address: {lead.address}
+                </p>
+              )}
+            </>
           )}
         </div>
 
@@ -671,8 +738,12 @@ export default function QuotationDetails() {
                     S.No.
                   </th>
 
-                  <th className="w-[31%] border border-gray-800 px-2 py-2 text-left">
-                    Service / Description
+                  <th className="w-[20%] border border-gray-800 px-2 py-2 text-left">
+                    Service Name
+                  </th>
+
+                  <th className="w-[20%] border border-gray-800 px-2 py-2 text-left">
+                    Description
                   </th>
 
                   <th className="w-[10%] border border-gray-800 px-2 py-2 text-center">
@@ -706,7 +777,13 @@ export default function QuotationDetails() {
 
                     <td className="border border-gray-800 px-2 py-3 align-top">
                       <p className="font-semibold text-gray-900">
-                        {item.description || "Service"}
+                        {item.serviceName || "Service"}
+                      </p>
+                    </td>
+
+                    <td className="border border-gray-800 px-2 py-3 align-top">
+                      <p className="whitespace-pre-line text-gray-600">
+                        {item.description?.trim() || "—"}
                       </p>
                     </td>
 

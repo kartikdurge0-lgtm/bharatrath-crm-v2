@@ -130,23 +130,13 @@ function normalizeQuotationItem(item: AnyRecord): AnyRecord {
 
   return {
     ...item,
-
     serviceId: text(item.serviceId ?? item.service_id ?? ""),
-
     serviceName: text(item.serviceName ?? item.service_name ?? ""),
-
-    description: text(
-      item.description ?? item.serviceName ?? item.service_name ?? "",
-    ),
-
+    description: text(item.description ?? ""),
     sac: text(item.sac ?? item.sacCode ?? ""),
-
     basicCost,
-
     discountedCost,
-
     finalCost,
-
     frequency: text(item.frequency ?? ""),
   };
 }
@@ -385,8 +375,7 @@ export default function EditQuotation() {
 
           serviceName: currentServiceName || savedName,
 
-          description:
-            text(item.description) || currentServiceName || savedName,
+          description: text(item.description),
 
           sac: text(item.sac) || currentSac,
 
@@ -459,21 +448,13 @@ export default function EditQuotation() {
 
         return {
           ...item,
-
           serviceId: getServiceId(service),
-
           serviceName: getServiceName(service),
-
-          description: getServiceName(service),
-
+          description: text(item.description),
           sac: getServiceSac(service),
-
           basicCost,
-
           discountedCost: 0,
-
           finalCost: basicCost,
-
           frequency: getServiceFrequency(service),
         };
       }),
@@ -859,7 +840,7 @@ export default function EditQuotation() {
         </div>
 
         <div className="overflow-x-auto p-3 sm:p-6">
-          <table className="w-full min-w-[1100px]">
+          <table className="w-full min-w-[1250px]">
             <thead>
               <tr className="bg-green-600">
                 <th className="px-3 py-3 text-center text-xs font-semibold text-white">
@@ -868,6 +849,10 @@ export default function EditQuotation() {
 
                 <th className="px-3 py-3 text-left text-xs font-semibold text-white">
                   Service
+                </th>
+
+                <th className="px-3 py-3 text-left text-xs font-semibold text-white">
+                  Description
                 </th>
 
                 <th className="px-3 py-3 text-left text-xs font-semibold text-white">
@@ -922,6 +907,20 @@ export default function EditQuotation() {
                         </option>
                       ))}
                     </select>
+                  </td>
+
+                  {/* DESCRIPTION */}
+
+                  <td className="px-3 py-4">
+                    <textarea
+                      rows={2}
+                      value={item.description || ""}
+                      onChange={(e) =>
+                        updateItem(index, "description", e.target.value)
+                      }
+                      placeholder="Enter description"
+                      className="w-[240px] rounded-lg border border-gray-300 px-3 py-2.5 text-sm"
+                    />
                   </td>
 
                   {/* SAC */}

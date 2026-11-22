@@ -1,8 +1,14 @@
 /* =========================================================
 
+
+
    ADD QUOTATION
 
+
+
    Bharatrath CRM
+
+
 
 ========================================================= */
 
@@ -21,7 +27,7 @@ import {
   type QuotationStatus,
 } from "../data/quotationStore";
 
-import { addClient, getClients, type Client } from "../data/clientStore";
+import { getActiveClientsFromSupabase, type Client } from "../data/clientStore";
 
 import SearchableClientSelect from "../components/SearchableClientSelect";
 
@@ -38,7 +44,11 @@ import { playSound } from "../audio/soundManager";
 
 /* =========================================================
 
+
+
    CONSTANTS
+
+
 
 ========================================================= */
 
@@ -46,7 +56,11 @@ const QUOTATION_SETTINGS_KEY = "crm-settings-quotation";
 
 /* =========================================================
 
+
+
    HELPERS
+
+
 
 ========================================================= */
 
@@ -57,17 +71,12 @@ function getToday(): string {
 function emptyItem(): QuotationItem {
   return {
     serviceId: "",
-
+    serviceName: "",
     description: "",
-
     sac: "",
-
     basicCost: 0,
-
     discountedCost: 0,
-
     finalCost: 0,
-
     frequency: "",
   };
 }
@@ -82,7 +91,11 @@ function currency(value: number): string {
 
 /* =========================================================
 
+
+
    QUOTATION NUMBER SETTINGS
+
+
 
 ========================================================= */
 
@@ -112,7 +125,11 @@ const defaultQuotationNumberSettings: QuotationNumberSettings = {
 
 /* =========================================================
 
+
+
    GET SETTINGS
+
+
 
 ========================================================= */
 
@@ -142,35 +159,24 @@ function getQuotationNumberSettings(): QuotationNumberSettings {
 
 /* =========================================================
 
+
+
    GET NUMERIC PART
+
+
 
 ========================================================= */
 
 function getQuotationNumericPart(
   quotationNumber: string,
-
   prefix: string,
 ): number {
-  const safePrefix = prefix.replace(/[.*+?^${}()|[**\\]\\\**]/g, "\\\\$&");
-
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = quotationNumber.match(
-    new RegExp(`^${safePrefix}(\\\d+)$`, "i"),
+    new RegExp(`^${escapedPrefix}-(\\d+)$`, "i"),
   );
-
-  if (!match) {
-    return 0;
-  }
-
-  const number = Number(match[1]);
-
-  return Number.isFinite(number) ? number : 0;
+  return match ? Number(match[1]) || 0 : 0;
 }
-
-/* =========================================================
-
-   INCREMENT NUMBER
-
-========================================================= */
 
 function incrementQuotationNumber(savedQuotationNumber?: string): void {
   const settings = getQuotationNumberSettings();
@@ -204,7 +210,11 @@ function incrementQuotationNumber(savedQuotationNumber?: string): void {
 
 /* =========================================================
 
+
+
    COMPONENT
+
+
 
 ========================================================= */
 
@@ -215,18 +225,50 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      DATA
+
+
 
   ======================================================= */
 
-  const [clients, setClients] = useState<Client[]>(() => getClients());
+  const [clients, setClients] = useState<Client[]>([]);
 
   const [services, setServices] = useState<Service[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadClients() {
+      try {
+        const data = await getActiveClientsFromSupabase();
+
+        if (mounted) {
+          setClients(data);
+        }
+      } catch (error) {
+        console.error("Failed to load clients from Supabase:", error);
+
+        if (mounted) {
+          setClients([]);
+        }
+      }
+    }
+
+    loadClients();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   function normalizeMatchValue(value: unknown): string {
     return String(value || "")
       .trim()
+
       .toLowerCase()
+
       .replace(/\s+/g, " ");
   }
 
@@ -242,12 +284,16 @@ export default function AddQuotation() {
     }
 
     const leadCompany = normalizeMatchValue(lead.companyName);
+
     const leadContact = normalizeMatchValue(lead.contactPerson);
+
     const leadPhone = normalizeMatchValue(lead.phone);
 
     return clients.find((client) => {
       const clientCompany = normalizeMatchValue(client.company);
+
       const clientContact = normalizeMatchValue(client.contactPerson);
+
       const clientPhone = normalizeMatchValue(client.phone);
 
       if (leadCompany && clientCompany && leadCompany === clientCompany) {
@@ -269,56 +315,6 @@ export default function AddQuotation() {
     });
   }
 
-  function generateNextClientId(): string {
-    const allClients = getClients();
-    let maxNumber = 0;
-
-    allClients.forEach((client) => {
-      const match = String(client.id || "").match(/^CL-(\d+)$/i);
-      if (match) {
-        maxNumber = Math.max(maxNumber, Number(match[1]));
-      }
-    });
-
-    return `CL-${String(maxNumber + 1).padStart(3, "0")}`;
-  }
-
-  async function ensureClientForLead(lead: Lead): Promise<Client | null> {
-    const existingClient = findClientForLead(lead);
-
-    if (existingClient) {
-      return existingClient;
-    }
-
-    const company = String(lead.companyName || lead.contactPerson || "").trim();
-
-    if (!company) {
-      return null;
-    }
-
-    const newClient: Client = {
-      id: generateNextClientId(),
-      company,
-      contactPerson: String(lead.contactPerson || "").trim(),
-      phone: String(lead.phone || "").trim(),
-      email: String(lead.email || "").trim(),
-      address: String(lead.address || "").trim(),
-      gst: "",
-      services: String(lead.interestedService || "").trim(),
-      status: "Active",
-      archived: false,
-    };
-
-    await addClient(newClient);
-
-    const refreshedClients = getClients();
-    setClients(refreshedClients);
-
-    return (
-      refreshedClients.find((client) => client.id === newClient.id) || newClient
-    );
-  }
-
   const [leads, setLeads] = useState<Lead[]>([]);
 
   const [selectedInitialLead, setSelectedInitialLead] = useState<Lead | null>(
@@ -331,7 +327,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      LOAD SERVICES
+
+
 
   ======================================================= */
 
@@ -365,7 +365,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      LOAD LEADS
+
+
 
   ======================================================= */
 
@@ -405,7 +409,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      LOAD SALES PERSONS
+
+
 
   ======================================================= */
 
@@ -443,7 +451,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      URL PREFILL
+
+
 
   ======================================================= */
 
@@ -451,7 +463,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      LOAD INITIAL LEAD
+
+
 
   ======================================================= */
 
@@ -489,7 +505,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      FORM STATE
+
+
 
   ======================================================= */
 
@@ -511,7 +531,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      MORE DETAILS
+
+
 
   ======================================================= */
 
@@ -531,7 +555,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      LAST QUOTATION PREFILL
+
+
 
   ======================================================= */
 
@@ -599,36 +627,29 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      INITIAL LEAD CLIENT PREFILL
+
+
 
   ======================================================= */
 
   useEffect(() => {
-    if (!selectedInitialLead) {
-      return;
-    }
+    if (!selectedInitialLead) return;
 
-    void ensureClientForLead(selectedInitialLead)
-      .then((matchingClient) => {
-        if (matchingClient) {
-          setClientId(String(matchingClient.id));
-          setError("");
-        } else {
-          setClientId("");
-          setError(
-            "This lead does not contain enough information to create a client.",
-          );
-        }
-      })
-      .catch((loadError) => {
-        console.error("Failed to create client from lead:", loadError);
-        setError("Failed to prepare the lead as a client. Please try again.");
-      });
+    const matchingClient = findClientForLead(selectedInitialLead);
+    setClientId(matchingClient ? String(matchingClient.id) : "");
+    setError("");
   }, [selectedInitialLead, clients]);
 
   /* =======================================================
 
+
+
      SELECTED RECORDS
+
+
 
   ======================================================= */
 
@@ -648,7 +669,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      TOTALS
+
+
 
   ======================================================= */
 
@@ -656,43 +681,48 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      LEAD CHANGE
+
+
 
   ======================================================= */
 
   async function handleLeadChange(value: string) {
     setLeadId(value);
+    setError("");
 
     if (!value) {
+      setClientId("");
       return;
     }
 
     try {
       const lead = await getLead(value);
-
       if (!lead) {
+        setClientId("");
         return;
       }
 
-      const matchingClient = await ensureClientForLead(lead);
-
-      if (matchingClient) {
-        setClientId(String(matchingClient.id));
-        setError("");
-      } else {
-        setClientId("");
-        setError(
-          "This lead does not contain enough information to create a client.",
-        );
-      }
+      // Reuse an existing Client only when a safe match exists.
+      // A Lead can have a quotation without being converted to a Client.
+      const matchingClient = findClientForLead(lead);
+      setClientId(matchingClient ? String(matchingClient.id) : "");
     } catch (error) {
       console.error("Failed to load selected lead:", error);
+      setClientId("");
+      setError("Could not load the selected lead. Please try again.");
     }
   }
 
   /* =======================================================
 
+
+
      SERVICE CHANGE
+
+
 
   ======================================================= */
 
@@ -713,7 +743,7 @@ export default function AddQuotation() {
 
         const serviceName = service.service_name || service.serviceName || "";
 
-        const description = service.description || serviceName;
+        const description = service.description || "";
 
         const sac = service.sac_code || service.sacCode || "";
 
@@ -724,19 +754,13 @@ export default function AddQuotation() {
 
         return {
           ...item,
-
           serviceId: String(service.id),
-
+          serviceName,
           description,
-
           sac,
-
           basicCost,
-
           discountedCost: 0,
-
           finalCost: basicCost,
-
           frequency,
         };
       }),
@@ -745,7 +769,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      DESCRIPTION CHANGE
+
+
 
   ======================================================= */
 
@@ -765,7 +793,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      DISCOUNT CHANGE
+
+
 
   ======================================================= */
 
@@ -795,7 +827,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      ADD ITEM
+
+
 
   ======================================================= */
 
@@ -805,7 +841,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      REMOVE ITEM
+
+
 
   ======================================================= */
 
@@ -821,7 +861,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      SUBMIT
+
+
 
   ======================================================= */
 
@@ -832,19 +876,21 @@ export default function AddQuotation() {
 
     /* -----------------------------------------------------
 
+
+
        VALIDATION
+
+
 
     ----------------------------------------------------- */
 
-    if (!clientId) {
-      setError("Please select a client.");
-
+    if (!clientId && !leadId) {
+      setError("Please select a Client or a Related Lead.");
       return;
     }
 
-    if (!selectedClient) {
-      setError("Selected client could not be found.");
-
+    if (clientId && !selectedClient) {
+      setError("Selected client could not be found. Please select it again.");
       return;
     }
 
@@ -868,7 +914,11 @@ export default function AddQuotation() {
 
     /* -----------------------------------------------------
 
+
+
        CLEAN ITEMS
+
+
 
     ----------------------------------------------------- */
 
@@ -896,7 +946,11 @@ export default function AddQuotation() {
 
     /* -----------------------------------------------------
 
+
+
        FINAL TOTALS
+
+
 
     ----------------------------------------------------- */
 
@@ -904,18 +958,30 @@ export default function AddQuotation() {
 
     /* -----------------------------------------------------
 
+
+
        QUOTATION NUMBER
+
+
 
     ----------------------------------------------------- */
 
     try {
       /*
 
+
+
        * Quotation number is generated by the Supabase-backed
+
+
 
        * quotation store. This prevents LocalStorage from being
 
+
+
        * the source of truth for numbering.
+
+
 
        */
 
@@ -923,7 +989,11 @@ export default function AddQuotation() {
 
       /* -----------------------------------------------------
 
+
+
        CREATE QUOTATION
+
+
 
     ----------------------------------------------------- */
 
@@ -932,11 +1002,19 @@ export default function AddQuotation() {
       const quotation: Quotation = {
         /*
 
+
+
          * Supabase generates the real numeric quotation ID.
+
+
 
          * The CRM QT-xxx ID generated here is only a compatibility
 
+
+
          * value and is ignored by the store on insert.
+
+
 
          */
 
@@ -987,7 +1065,11 @@ export default function AddQuotation() {
 
       /* -----------------------------------------------------
 
+
+
        SAVE
+
+
 
     ----------------------------------------------------- */
 
@@ -997,7 +1079,11 @@ export default function AddQuotation() {
 
       /* -----------------------------------------------------
 
+
+
        UPDATE NUMBER SETTINGS
+
+
 
     ----------------------------------------------------- */
 
@@ -1005,7 +1091,11 @@ export default function AddQuotation() {
 
       /* -----------------------------------------------------
 
+
+
        NAVIGATE
+
+
 
     ----------------------------------------------------- */
 
@@ -1023,7 +1113,11 @@ export default function AddQuotation() {
 
   /* =======================================================
 
+
+
      RENDER
+
+
 
   ======================================================= */
 
@@ -1031,7 +1125,11 @@ export default function AddQuotation() {
     <div className="mx-auto w-full max-w-[1200px] min-w-0 space-y-4 pb-8 sm:space-y-6">
       {/* =================================================
 
+
+
           HEADER
+
+
 
       ================================================= */}
 
@@ -1042,7 +1140,7 @@ export default function AddQuotation() {
           </h2>
 
           <p className="mt-1 text-sm text-gray-500">
-            Create a quotation for a client
+            Create a quotation for a client or lead
           </p>
         </div>
 
@@ -1057,7 +1155,11 @@ export default function AddQuotation() {
 
       {/* =================================================
 
+
+
           ERROR
+
+
 
       ================================================= */}
 
@@ -1070,7 +1172,11 @@ export default function AddQuotation() {
       <form onSubmit={handleSubmit} className="min-w-0">
         {/* =================================================
 
+
+
             BASIC INFORMATION
+
+
 
         ================================================= */}
 
@@ -1090,14 +1196,17 @@ export default function AddQuotation() {
 
             <div className="min-w-0 md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-gray-700">
-                Client <span className="text-red-500">*</span>
+                Client{" "}
+                <span className="text-xs font-normal text-gray-500">
+                  (Optional if a Lead is selected)
+                </span>
               </label>
 
               <SearchableClientSelect
                 clients={clients}
                 value={clientId}
                 onChange={setClientId}
-                placeholder="Select Client"
+                placeholder="Select Client (optional)"
               />
             </div>
 
@@ -1233,7 +1342,11 @@ export default function AddQuotation() {
 
         {/* =================================================
 
+
+
             SERVICES
+
+
 
         ================================================= */}
 
@@ -1407,7 +1520,11 @@ export default function AddQuotation() {
 
           {/* =================================================
 
+
+
               TOTALS
+
+
 
           ================================================= */}
 
@@ -1454,7 +1571,11 @@ export default function AddQuotation() {
 
         {/* =================================================
 
+
+
             MORE DETAILS
+
+
 
         ================================================= */}
 
@@ -1566,7 +1687,11 @@ export default function AddQuotation() {
 
         {/* =================================================
 
+
+
             ACTIONS
+
+
 
         ================================================= */}
 

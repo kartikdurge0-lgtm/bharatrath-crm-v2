@@ -387,6 +387,54 @@ export default function ClientDetails() {
               </p>
             </div>
 
+            {/* City */}
+
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                City
+              </p>
+
+              <p className="mt-1 break-words text-sm text-slate-700">
+                {client.city || "—"}
+              </p>
+            </div>
+
+            {/* State */}
+
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                State
+              </p>
+
+              <p className="mt-1 break-words text-sm text-slate-700">
+                {client.state || "—"}
+              </p>
+            </div>
+
+            {/* District */}
+
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                District
+              </p>
+
+              <p className="mt-1 break-words text-sm text-slate-700">
+                {client.district || "—"}
+              </p>
+            </div>
+
+            {/* PIN Code */}
+
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                PIN Code
+              </p>
+
+              <p className="mt-1 break-words text-sm text-slate-700">
+                {client.pincode || "—"}
+              </p>
+            </div>
+
             {/* Address */}
 
             <div className="min-w-0 sm:col-span-2">

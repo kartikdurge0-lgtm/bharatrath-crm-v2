@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { INDIAN_STATES } from "../data/indianStates";
+import {
+  getIndiaPincodeData,
+  type IndiaPincodeRecord,
+} from "../data/indiaPincode";
 
 import {
   getClientByIdFromSupabase,
@@ -16,6 +21,41 @@ export default function EditClient() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [indiaPincodeRecords, setIndiaPincodeRecords] = useState<
+    IndiaPincodeRecord[]
+  >([]);
+  const availableDistricts = Array.from(
+    new Set(
+      indiaPincodeRecords
+        .filter((item) => item.state === (client?.state || ""))
+        .map((item) => item.district),
+    ),
+  ).sort();
+
+  const availablePincodes = Array.from(
+    new Set(
+      indiaPincodeRecords
+        .filter(
+          (item) =>
+            item.state === (client?.state || "") &&
+            item.district === (client?.district || ""),
+        )
+        .map((item) => item.pincode),
+    ),
+  ).sort();
+
+  const availableCities = Array.from(
+    new Set(
+      indiaPincodeRecords
+        .filter(
+          (item) =>
+            item.state === (client?.state || "") &&
+            item.district === (client?.district || "") &&
+            item.pincode === (client?.pincode || ""),
+        )
+        .flatMap((item) => item.postOffices),
+    ),
+  ).sort();
 
   /* =================================================
      LOAD CLIENT
@@ -52,6 +92,25 @@ export default function EditClient() {
   useEffect(() => {
     void loadClient();
   }, [loadClient]);
+  useEffect(() => {
+    let isMounted = true;
+
+    getIndiaPincodeData()
+      .then((data) => {
+        if (isMounted) {
+          setIndiaPincodeRecords(data);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setIndiaPincodeRecords([]);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   /* =================================================
      REFRESH WHEN PAGE BECOMES VISIBLE
@@ -168,6 +227,12 @@ export default function EditClient() {
     const email = client.email.trim();
 
     const address = client.address.trim();
+
+    const city = (client.city || "").trim();
+
+    const state = (client.state || "").trim();
+
+    const pincode = (client.pincode || "").trim();
 
     const gst = client.gst.trim().toUpperCase();
 
@@ -308,6 +373,12 @@ export default function EditClient() {
       email,
 
       address,
+
+      city,
+
+      state,
+
+      pincode,
 
       gst,
 
@@ -513,27 +584,152 @@ export default function EditClient() {
             />
           </div>
 
-          {/* =================================================
-              ADDRESS
-          ================================================= */}
+          {/* ADDRESS AND LOCATION */}
 
-          <div className="min-w-0 md:col-span-2">
-            <label
-              htmlFor="client-address"
-              className="mb-1.5 block text-sm font-medium text-gray-700"
-            >
-              Address
-            </label>
+          <div className="grid min-w-0 grid-cols-1 gap-4 md:col-span-2 md:grid-cols-2">
+            {/* Address */}
 
-            <textarea
-              id="client-address"
-              rows={3}
-              value={client.address}
-              onChange={(event) => handleChange("address", event.target.value)}
-              disabled={saving}
-              autoComplete="street-address"
-              className="min-h-[88px] w-full min-w-0 resize-y rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-gray-50 sm:px-4"
-            />
+            <div className="min-w-0">
+              <label
+                htmlFor="client-address"
+                className="mb-1.5 block text-sm font-medium text-gray-700"
+              >
+                Address
+              </label>
+
+              <textarea
+                id="client-address"
+                rows={5}
+                value={client.address}
+                onChange={(event) =>
+                  handleChange("address", event.target.value)
+                }
+                disabled={saving}
+                autoComplete="street-address"
+                className="min-h-[180px] w-full min-w-0 resize-y rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-gray-50 sm:px-4"
+              />
+            </div>
+
+            {/* City, State and PIN */}
+
+            <div className="grid min-w-0 grid-cols-1 gap-4">
+              <div className="min-w-0">
+                <label
+                  htmlFor="client-city"
+                  className="mb-1.5 block text-sm font-medium text-gray-700"
+                >
+                  City
+                </label>
+
+                <input
+                  id="client-city"
+                  list="client-city-options"
+                  type="text"
+                  value={client.city || ""}
+                  onChange={(event) => handleChange("city", event.target.value)}
+                  disabled={saving}
+                  placeholder="Enter city"
+                  className="h-10 w-full rounded-lg border border-gray-300 px-3.5 text-sm outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:bg-gray-50 sm:h-11"
+                />
+                <datalist id="client-city-options">
+                  {availableCities.map((item) => (
+                    <option key={item} value={item} />
+                  ))}
+                </datalist>
+              </div>
+
+              <div className="min-w-0">
+                <label
+                  htmlFor="client-district"
+                  className="mb-1.5 block text-sm font-medium text-gray-700"
+                >
+                  District
+                </label>
+
+                <select
+                  id="client-district"
+                  value={client.district || ""}
+                  onChange={(event) => {
+                    handleChange("district", event.target.value);
+                    handleChange("pincode", "");
+                    handleChange("city", "");
+                  }}
+                  disabled={saving || !client.state}
+                  className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3.5 text-sm outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:bg-gray-50 sm:h-11"
+                >
+                  <option value="">Select District</option>
+
+                  {availableDistricts.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="min-w-0">
+                <label
+                  htmlFor="client-state"
+                  className="mb-1.5 block text-sm font-medium text-gray-700"
+                >
+                  State / Union Territory
+                </label>
+
+                <select
+                  id="client-state"
+                  value={client.state || ""}
+                  onChange={(event) => {
+                    handleChange("state", event.target.value);
+                    handleChange("district", "");
+                    handleChange("pincode", "");
+                    handleChange("city", "");
+                  }}
+                  disabled={saving}
+                  className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3.5 text-sm outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:bg-gray-50 sm:h-11"
+                >
+                  <option value="">Select State / UT</option>
+
+                  {INDIAN_STATES.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="min-w-0">
+                <label
+                  htmlFor="client-pincode"
+                  className="mb-1.5 block text-sm font-medium text-gray-700"
+                >
+                  PIN Code
+                </label>
+
+                <input
+                  id="client-pincode"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  list="client-pincode-options"
+                  value={client.pincode || ""}
+                  onChange={(event) =>
+                    handleChange(
+                      "pincode",
+                      event.target.value.replace(/\D/g, ""),
+                    )
+                  }
+                  disabled={saving}
+                  placeholder="Enter or select PIN Code"
+                  className="h-10 w-full rounded-lg border border-gray-300 px-3.5 text-sm outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:bg-gray-50 sm:h-11"
+                />
+
+                <datalist id="client-pincode-options">
+                  {availablePincodes.map((item) => (
+                    <option key={item} value={item} />
+                  ))}
+                </datalist>
+              </div>
+            </div>
           </div>
 
           {/* =================================================

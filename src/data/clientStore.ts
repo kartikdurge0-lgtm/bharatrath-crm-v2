@@ -21,6 +21,14 @@ export type Client = {
 
   address: string;
 
+  city?: string;
+
+  state?: string;
+
+  district?: string;
+
+  pincode?: string;
+
   gst: string;
 
   services: string;
@@ -166,6 +174,14 @@ function normalizeClient(client: Partial<Client>): Client {
 
     address: String(client.address ?? "").trim(),
 
+    city: String(client.city ?? "").trim(),
+
+    state: String(client.state ?? "").trim(),
+
+    district: String(client.district ?? "").trim(),
+
+    pincode: String(client.pincode ?? "").trim(),
+
     gst: String(client.gst ?? "").trim(),
 
     services: String(client.services ?? "").trim(),
@@ -294,6 +310,14 @@ function getSupabaseClientData(client: Client) {
 
     address: client.address || null,
 
+    city: client.city || null,
+
+    state: client.state || null,
+
+    district: client.district || null,
+
+    pincode: client.pincode || null,
+
     gst_number: client.gst || null /*
 
      \* Existing database structure uses notes for the
@@ -335,6 +359,14 @@ type SupabaseClientRow = {
 
   address?: string | null;
 
+  city?: string | null;
+
+  state?: string | null;
+
+  district?: string | null;
+
+  pincode?: string | null;
+
   gst_number?: string | null;
 
   notes?: string | null;
@@ -358,6 +390,14 @@ function mapSupabaseClientRow(row: SupabaseClientRow): Client {
 
     address: row.address || "",
 
+    city: row.city || "",
+
+    state: row.state || "",
+
+    district: row.district || "",
+
+    pincode: row.pincode || "",
+
     gst: row.gst_number || "",
 
     services: row.notes || "",
@@ -374,7 +414,7 @@ async function loadAllSupabaseClients(): Promise<Client[]> {
     .from("clients")
 
     .select(
-      "id, crm_client_id, company_name, contact_person, phone, email, address, gst_number, notes, status, is_archived",
+      "id, crm_client_id, company_name, contact_person, phone, email, address, city, state, district, pincode, gst_number, notes, status, is_archived",
     )
 
     .order("created_at", { ascending: false })
@@ -406,7 +446,7 @@ async function loadClientByCrmId(
     .from("clients")
 
     .select(
-      "id, crm_client_id, company_name, contact_person, phone, email, address, gst_number, notes, status, is_archived",
+      "id, crm_client_id, company_name, contact_person, phone, email, address, city, state, district, pincode, gst_number, notes, status, is_archived",
     )
 
     .eq("crm_client_id", normalizedId)
@@ -1076,6 +1116,11 @@ export async function updateClient(updatedClient: Client): Promise<void> {
 
       address: existingClient.address,
 
+      city: existingClient.city,
+      state: existingClient.state,
+      district: existingClient.district,
+      pincode: existingClient.pincode,
+
       gst: existingClient.gst,
 
       services: existingClient.services,
@@ -1095,6 +1140,11 @@ export async function updateClient(updatedClient: Client): Promise<void> {
       email: clientToSave.email,
 
       address: clientToSave.address,
+
+      city: clientToSave.city,
+      state: clientToSave.state,
+      district: clientToSave.district,
+      pincode: clientToSave.pincode,
 
       gst: clientToSave.gst,
 
@@ -1223,6 +1273,11 @@ export async function addClient(client: Client): Promise<number> {
       email: newClient.email,
 
       address: newClient.address,
+
+      city: newClient.city,
+      state: newClient.state,
+      district: newClient.district,
+      pincode: newClient.pincode,
 
       gst: newClient.gst,
 

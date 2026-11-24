@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { playSound } from "../audio/soundManager";
-
+import { INDIAN_STATES } from "../data/indianStates";
+import {
+  getIndiaPincodeData,
+  type IndiaPincodeRecord,
+} from "../data/indiaPincode";
 import {
   addClient,
   archiveClient,
@@ -35,6 +39,45 @@ export default function AddClient() {
 
   const [address, setAddress] = useState("");
 
+  const [city, setCity] = useState("");
+
+  const [state, setState] = useState("");
+
+  const [district, setDistrict] = useState("");
+
+  const [pincode, setPincode] = useState("");
+  const [indiaPincodeRecords, setIndiaPincodeRecords] = useState<
+    IndiaPincodeRecord[]
+  >([]);
+
+  const availableDistricts = Array.from(
+    new Set(
+      indiaPincodeRecords
+        .filter((item) => item.state === state)
+        .map((item) => item.district),
+    ),
+  ).sort();
+  const availablePincodes = Array.from(
+    new Set(
+      indiaPincodeRecords
+        .filter((item) => item.state === state && item.district === district)
+        .map((item) => item.pincode),
+    ),
+  ).sort();
+
+  const availableCities = Array.from(
+    new Set(
+      indiaPincodeRecords
+        .filter(
+          (item) =>
+            item.state === state &&
+            item.district === district &&
+            item.pincode === pincode,
+        )
+        .flatMap((item) => item.postOffices),
+    ),
+  ).sort();
+
   const [gst, setGst] = useState("");
 
   const [services, setServices] = useState("");
@@ -46,6 +89,26 @@ export default function AddClient() {
   const [loadingLead, setLoadingLead] = useState(false);
 
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    getIndiaPincodeData()
+      .then((data) => {
+        if (isMounted) {
+          setIndiaPincodeRecords(data);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setIndiaPincodeRecords([]);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   /* =======================================================
      LOAD LEAD DATA
@@ -374,6 +437,11 @@ export default function AddClient() {
 
         address: trimmedAddress,
 
+        city: city.trim(),
+        state: state.trim(),
+        district: district.trim(),
+        pincode: pincode.trim(),
+
         gst: trimmedGst,
 
         services: trimmedServices || "Not Assigned",
@@ -635,25 +703,144 @@ export default function AddClient() {
               placeholder="example@company.com"
             />
 
-            {/* Address */}
+            {/* Address and Location */}
 
-            <div className="min-w-0 md:col-span-2">
-              <label
-                htmlFor="client-address"
-                className="mb-1.5 block text-sm font-medium text-gray-700"
-              >
-                Address
-              </label>
+            <div className="grid min-w-0 grid-cols-1 gap-4 md:col-span-2 md:grid-cols-2">
+              <div className="min-w-0">
+                <label
+                  htmlFor="client-address"
+                  className="mb-1.5 block text-sm font-medium text-gray-700"
+                >
+                  Address
+                </label>
 
-              <textarea
-                id="client-address"
-                value={address}
-                onChange={(event) => setAddress(event.target.value)}
-                rows={3}
-                placeholder="Enter address"
-                disabled={saving}
-                className="min-h-[88px] w-full min-w-0 resize-y rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500 disabled:cursor-not-allowed disabled:bg-gray-50 sm:px-4"
-              />
+                <textarea
+                  id="client-address"
+                  value={address}
+                  onChange={(event) => setAddress(event.target.value)}
+                  rows={5}
+                  placeholder="Enter address"
+                  disabled={saving}
+                  className="min-h-[180px] w-full min-w-0 resize-y rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500 disabled:cursor-not-allowed disabled:bg-gray-50 sm:px-4"
+                />
+              </div>
+
+              <div className="grid min-w-0 grid-cols-1 gap-4">
+                <div className="min-w-0">
+                  <label
+                    htmlFor="client-city"
+                    className="mb-1.5 block text-sm font-medium text-gray-700"
+                  >
+                    City
+                  </label>
+
+                  <input
+                    id="client-city"
+                    type="text"
+                    list="client-city-options"
+                    value={city}
+                    onChange={(event) => setCity(event.target.value)}
+                    placeholder="Enter or select city"
+                    disabled={saving}
+                    className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500 disabled:cursor-not-allowed disabled:bg-gray-50 sm:h-11 sm:px-4"
+                  />
+
+                  <datalist id="client-city-options">
+                    {availableCities.map((item) => (
+                      <option key={item} value={item} />
+                    ))}
+                  </datalist>
+                </div>
+
+                <div className="min-w-0">
+                  <label
+                    htmlFor="client-district"
+                    className="mb-1.5 block text-sm font-medium text-gray-700"
+                  >
+                    District
+                  </label>
+
+                  <select
+                    id="client-district"
+                    value={district}
+                    onChange={(event) => {
+                      setDistrict(event.target.value);
+                      setPincode("");
+                      setCity("");
+                    }}
+                    disabled={saving || !state}
+                    className="h-10 w-full min-w-0 rounded-lg border border-gray-300 bg-white px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500 disabled:cursor-not-allowed disabled:bg-gray-50 sm:h-11 sm:px-4"
+                  >
+                    <option value="">Select District</option>
+                    {availableDistricts.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="min-w-0">
+                  <label
+                    htmlFor="client-state"
+                    className="mb-1.5 block text-sm font-medium text-gray-700"
+                  >
+                    State / Union Territory
+                  </label>
+
+                  <select
+                    id="client-state"
+                    value={state}
+                    onChange={(event) => {
+                      setState(event.target.value);
+                      setDistrict("");
+                      setPincode("");
+                      setCity("");
+                    }}
+                    disabled={saving}
+                    className="h-10 w-full min-w-0 rounded-lg border border-gray-300 bg-white px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500 disabled:cursor-not-allowed disabled:bg-gray-50 sm:h-11 sm:px-4"
+                  >
+                    <option value="">Select State / UT</option>
+                    {INDIAN_STATES.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="min-w-0">
+                  <label
+                    htmlFor="client-pincode"
+                    className="mb-1.5 block text-sm font-medium text-gray-700"
+                  >
+                    PIN Code
+                  </label>
+
+                  <input
+                    id="client-pincode"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    list="client-pincode-options"
+                    value={pincode}
+                    onChange={(event) => {
+                      const value = event.target.value.replace(/\D/g, "");
+                      setPincode(value);
+                      setCity("");
+                    }}
+                    placeholder="Enter or select PIN Code"
+                    disabled={saving}
+                    className="h-10 w-full min-w-0 rounded-lg border border-gray-300 px-3.5 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500 disabled:cursor-not-allowed disabled:bg-gray-50 sm:h-11 sm:px-4"
+                  />
+
+                  <datalist id="client-pincode-options">
+                    {availablePincodes.map((item) => (
+                      <option key={item} value={item} />
+                    ))}
+                  </datalist>
+                </div>
+              </div>
             </div>
           </div>
         </section>
